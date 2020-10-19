@@ -25,11 +25,11 @@
                            :total="total"/>
     </el-card>
 
-    <el-dialog :title="$t('member.create')" :visible.sync="createVisible" width="30%" :destroy-on-close="true"
+    <el-dialog :close-on-click-modal="false" :title="$t('member.create')" :visible.sync="createVisible" width="30%" :destroy-on-close="true"
                @close="handleClose">
       <el-form :model="form" ref="form" :rules="rules" label-position="right" label-width="100px" size="small">
-
-        <el-form-item :label="$t('commons.member')" prop="ids" :rules="{required: true, message: $t('member.input_id_or_email'), trigger: 'blur'}">
+        <el-form-item :label="$t('commons.member')" prop="ids"
+                      :rules="{required: true, message: $t('member.input_id_or_email'), trigger: 'blur'}">
           <el-select
             v-model="form.ids"
             multiple
@@ -51,9 +51,9 @@
                 <span class="org-member-email">{{item.email}}</span>
               </template>
             </el-option>
-
           </el-select>
         </el-form-item>
+
         <el-form-item :label="$t('commons.role')" prop="roleIds">
           <el-select v-model="form.roleIds" multiple :placeholder="$t('role.please_choose_role')" class="select-width">
             <el-option
@@ -65,6 +65,7 @@
           </el-select>
         </el-form-item>
       </el-form>
+
       <template v-slot:footer>
         <ms-dialog-footer
           @cancel="createVisible = false"
@@ -72,7 +73,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog :title="$t('member.modify')" :visible.sync="updateVisible" width="30%" :destroy-on-close="true"
+    <el-dialog :close-on-click-modal="false" :title="$t('member.modify')" :visible.sync="updateVisible" width="30%" :destroy-on-close="true"
                @close="handleClose">
       <el-form :model="form" label-position="right" label-width="100px" size="small" ref="updateUserForm">
         <el-form-item label="ID" prop="id">
@@ -87,7 +88,8 @@
         <el-form-item :label="$t('commons.phone')" prop="phone">
           <el-input v-model="form.phone" autocomplete="off" :disabled="true"/>
         </el-form-item>
-        <el-form-item :label="$t('commons.role')" prop="roleIds" :rules="{required: true, message: $t('role.please_choose_role'), trigger: 'change'}">
+        <el-form-item :label="$t('commons.role')" prop="roleIds"
+                      :rules="{required: true, message: $t('role.please_choose_role'), trigger: 'change'}">
           <el-select v-model="form.roleIds" multiple :placeholder="$t('role.please_choose_role')" class="select-width">
             <el-option
               v-for="item in form.allroles"
@@ -114,7 +116,7 @@
   import MsRolesTag from "../../common/components/MsRolesTag";
   import MsTableOperator from "../../common/components/MsTableOperator";
   import MsDialogFooter from "../../common/components/MsDialogFooter";
-  import {getCurrentUser} from "../../../../common/js/utils";
+  import {getCurrentUser, listenGoBack, removeGoBackListener} from "../../../../common/js/utils";
 
   export default {
     name: "MsOrganizationMember",
@@ -127,7 +129,6 @@
         result: {},
         createVisible: false,
         updateVisible: false,
-        userList: [],
         form: {},
         queryPath: "/user/org/member/list",
         condition: {},
@@ -146,7 +147,6 @@
         total: 0,
         options: [],
         loading: false,
-        ids: []
       }
     },
     methods: {
@@ -163,7 +163,7 @@
           this.tableData = data.listObject;
           let url = "/userrole/list/org/" + this.currentUser().lastOrganizationId;
           for (let i = 0; i < this.tableData.length; i++) {
-            this.$get(url + "/" + this.tableData[i].id, response => {
+            this.$get(url + "/" + encodeURIComponent(this.tableData[i].id), response => {
               let roles = response.data;
               this.$set(this.tableData[i], "roles", roles);
             })
@@ -177,6 +177,9 @@
       handleClose() {
         this.form = {};
         this.options = [];
+        removeGoBackListener(this.handleClose);
+        this.updateVisible = false;
+        this.createVisible = false;
       },
       edit(row) {
         this.updateVisible = true;
@@ -184,9 +187,10 @@
         let roleIds = this.form.roles.map(r => r.id);
         this.result = this.$get('/role/list/org', response => {
           this.$set(this.form, "allroles", response.data);
-        })
+        });
         // 编辑使填充角色信息
         this.$set(this.form, 'roleIds', roleIds);
+        listenGoBack(this.handleClose);
       },
       updateOrgMember(formName) {
         let param = {
@@ -196,7 +200,7 @@
           phone: this.form.phone,
           roleIds: this.form.roleIds,
           organizationId: this.currentUser().lastOrganizationId
-        }
+        };
         this.$refs[formName].validate((valid) => {
           if (valid) {
             this.result = this.$post("/organization/member/update", param, () => {
@@ -213,7 +217,7 @@
           cancelButtonText: this.$t('commons.cancel'),
           type: 'warning'
         }).then(() => {
-          this.result = this.$get('/user/org/member/delete/' + this.currentUser().lastOrganizationId + '/' + row.id, () => {
+          this.result = this.$get('/user/org/member/delete/' + this.currentUser().lastOrganizationId + '/' + encodeURIComponent(row.id), () => {
             this.$success(this.$t('commons.remove_success'));
             this.initTableData();
           });
@@ -229,12 +233,10 @@
         }
         this.form = {};
         this.createVisible = true;
-        // this.result = this.$get('/user/list/', response => {
-        //   this.userList = response.data;
-        // });
         this.result = this.$get('/role/list/org', response => {
           this.$set(this.form, "roles", response.data);
-        })
+        });
+        listenGoBack(this.handleClose);
       },
       submitForm(formName) {
         this.$refs[formName].validate((valid) => {
@@ -256,7 +258,7 @@
         });
       },
       remoteMethod(query) {
-        query = query.trim()
+        query = query.trim();
         if (query !== '') {
           this.loading = true;
           setTimeout(() => {
@@ -283,10 +285,6 @@
     float: right;
     color: #8492a6;
     font-size: 13px;
-  }
-
-  .input-with-autocomplete {
-    width: 100%;
   }
 
   .select-width {

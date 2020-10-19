@@ -88,8 +88,15 @@
     beforeCreate() {
       this.$get("/isLogin").then(response => {
         if (!response.data.success) {
-          this.ready = true;
+          if (response.data.message === 'sso') {
+            window.location.href = "/sso/login"
+          } else {
+            this.ready = true;
+          }
         } else {
+          let user = response.data.data;
+          saveLocalStorage(response.data);
+          this.getLanguage(user.language);
           window.location.href = "/"
         }
       });
@@ -136,12 +143,14 @@
       normalLogin() {
         this.result = this.$post("signin", this.form, response => {
           saveLocalStorage(response);
+          sessionStorage.setItem('loginSuccess', 'true');
           this.getLanguage(response.data.language);
         });
       },
       ldapLogin() {
         this.result = this.$post("ldap/signin", this.form, response => {
           saveLocalStorage(response);
+          sessionStorage.setItem('loginSuccess', 'true');
           this.getLanguage(response.data.language);
         });
       },

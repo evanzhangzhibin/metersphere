@@ -1,6 +1,6 @@
 <template>
-  <div class="container">
-    <div class="main-content">
+  <ms-container>
+    <ms-main-container>
       <el-card>
         <el-container class="test-container" v-loading="result.loading">
           <el-header>
@@ -8,42 +8,46 @@
               <el-input :disabled="isReadOnly" class="test-name" v-model="test.name" maxlength="60"
                         :placeholder="$t('api_test.input_name')"
                         show-word-limit>
-                <el-select :disabled="isReadOnly" class="test-project" v-model="test.projectId" slot="prepend"
+                <el-select filterable class="test-project" v-model="test.projectId" slot="prepend"
                            :placeholder="$t('api_test.select_project')">
                   <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id"/>
                 </el-select>
               </el-input>
 
-              <el-button type="primary" plain :disabled="isReadOnly" @click="saveTest">
-                {{$t('commons.save')}}
-              </el-button>
+              <el-tooltip :content="'Ctrl + S'"
+                          placement="top"
+                          :enterable="false">
+                <el-button type="primary" plain :disabled="isReadOnly" @click="saveTest">
+                  {{ $t('commons.save') }}
+                </el-button>
+              </el-tooltip>
 
-              <el-button type="primary" plain  :disabled="isReadOnly"
+              <el-button type="primary" plain :disabled="isReadOnly"
                          @click="saveRunTest">
-                {{$t('load_test.save_and_run')}}
+                {{ $t('load_test.save_and_run') }}
               </el-button>
 
-<!--              <el-button :disabled="isReadOnly" type="primary" plain v-if="isShowRun" @click="runTest">-->
-<!--                {{$t('api_test.run')}}-->
-<!--              </el-button>-->
+              <!--              <el-button :disabled="isReadOnly" type="primary" plain v-if="isShowRun" @click="runTest">-->
+              <!--                {{$t('api_test.run')}}-->
+              <!--              </el-button>-->
 
-              <el-button :disabled="isReadOnly" type="warning" plain @click="cancel">{{$t('commons.cancel')}}
+              <el-button :disabled="isReadOnly" type="warning" plain @click="cancel">{{ $t('commons.cancel') }}
               </el-button>
 
               <el-dropdown trigger="click" @command="handleCommand">
                 <el-button class="el-dropdown-link more" icon="el-icon-more" plain/>
                 <el-dropdown-menu slot="dropdown">
-                  <el-dropdown-item command="report" :disabled="test.status !== 'Completed'">
-                    {{$t('api_report.title')}}
+                  <el-dropdown-item command="report">
+                    {{ $t('api_report.title') }}
                   </el-dropdown-item>
                   <el-dropdown-item command="performance" :disabled="create || isReadOnly">
-                    {{$t('api_test.create_performance_test')}}
+                    {{ $t('api_test.create_performance_test') }}
                   </el-dropdown-item>
                   <el-dropdown-item command="export" :disabled="isReadOnly || create">
-                    {{$t('api_test.export_config')}}
+                    {{ $t('api_test.export_config') }}
                   </el-dropdown-item>
                   <el-dropdown-item command="import" :disabled="isReadOnly">
-                    {{$t('api_test.api_import.label')}}
+                    {{ $t('api_test.api_import.label') }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
@@ -52,29 +56,38 @@
 
               <ms-api-report-dialog :test-id="id" ref="reportDialog"/>
 
-              <ms-schedule-config :schedule="test.schedule" :save="saveCronExpression" @scheduleChange="saveSchedule" :check-open="checkScheduleEdit"/>
+              <ms-schedule-config :schedule="test.schedule" :is-read-only="isReadOnly" :save="saveCronExpression"
+                                  @scheduleChange="saveSchedule" :test-id="id" :check-open="checkScheduleEdit"/>
             </el-row>
           </el-header>
-          <ms-api-scenario-config :is-read-only="isReadOnly" :scenarios="test.scenarioDefinition" :project-id="test.projectId" ref="config"/>
+          <ms-api-scenario-config :debug-report-id="debugReportId" @runDebug="runDebug" :is-read-only="isReadOnly"
+                                  :test="test" :scenarios="test.scenarioDefinition" :project-id="test.projectId"
+                                  ref="config"/>
         </el-container>
       </el-card>
-    </div>
-  </div>
+    </ms-main-container>
+  </ms-container>
 </template>
 
 <script>
   import MsApiScenarioConfig from "./components/ApiScenarioConfig";
-  import {Test} from "./model/ScenarioModel"
+  import {Scenario, Test} from "./model/ScenarioModel"
   import MsApiReportStatus from "../report/ApiReportStatus";
   import MsApiReportDialog from "./ApiReportDialog";
-  import {checkoutTestManagerOrTestUser, downloadFile} from "@/common/js/utils";
+  import {checkoutTestManagerOrTestUser, downloadFile, getUUID} from "@/common/js/utils";
   import MsScheduleConfig from "../../common/components/MsScheduleConfig";
   import ApiImport from "./components/import/ApiImport";
+  import {ApiEvent, LIST_CHANGE} from "@/business/components/common/head/ListEvent";
+  import MsContainer from "@/business/components/common/components/MsContainer";
+  import MsMainContainer from "@/business/components/common/components/MsMainContainer";
 
   export default {
     name: "MsApiTestConfig",
 
-    components: {ApiImport, MsScheduleConfig, MsApiReportDialog, MsApiReportStatus, MsApiScenarioConfig},
+    components: {
+      MsMainContainer,
+      MsContainer, ApiImport, MsScheduleConfig, MsApiReportDialog, MsApiReportStatus, MsApiScenarioConfig
+    },
 
     props: ["id"],
 
@@ -86,7 +99,8 @@
         projects: [],
         change: false,
         test: new Test(),
-        isReadOnly: false
+        isReadOnly: false,
+        debugReportId: ''
       }
     },
 
@@ -124,6 +138,39 @@
           if (projectId) this.test.projectId = projectId;
         })
       },
+      updateReference() {
+        let updateIds = [];
+        this.test.scenarioDefinition.forEach(scenario => {
+          if (scenario.isReference()) {
+            updateIds.push(scenario.id.split("#")[0]);
+          }
+        })
+
+        if (updateIds.length === 0) return;
+        // 更新引用场景
+        this.result = this.$post("/api/list/ids", {ids: updateIds}, response => {
+          let scenarioMap = {};
+          if (response.data) {
+            response.data.forEach(test => {
+              JSON.parse(test.scenarioDefinition).forEach(options => {
+                let referenceId = test.id + "#" + options.id;
+                scenarioMap[referenceId] = new Scenario(options);
+                scenarioMap[referenceId].id = referenceId;
+              })
+            })
+          }
+
+          let scenarios = [];
+          this.test.scenarioDefinition.forEach(scenario => {
+            if (scenario.isReference()) {
+              if (scenarioMap[scenario.id]) scenarios.push(scenarioMap[scenario.id]);
+            } else {
+              scenarios.push(scenario);
+            }
+          })
+          this.test.scenarioDefinition = scenarios;
+        })
+      },
       getTest(id) {
         this.result = this.$get("/api/get/" + id, response => {
           if (response.data) {
@@ -137,6 +184,8 @@
               scenarioDefinition: JSON.parse(item.scenarioDefinition),
               schedule: item.schedule ? item.schedule : {},
             });
+            this.updateReference();
+
             this.$refs.config.reset();
           }
         });
@@ -148,10 +197,15 @@
           return;
         }
         this.change = false;
+        let bodyFiles = this.getBodyUploadFiles();
         let url = this.create ? "/api/create" : "/api/update";
-        this.result = this.$request(this.getOptions(url), () => {
-          this.create = false;
+        let jmx = this.test.toJMX();
+        let blob = new Blob([jmx.xml], {type: "application/octet-stream"});
+        let file = new File([blob], jmx.name);
+        this.result = this.$fileUpload(url, file, bodyFiles, this.test, () => {
           if (callback) callback();
+          this.create = false;
+          this.resetBodyFile();
         });
       },
       saveTest() {
@@ -161,9 +215,9 @@
             this.$router.push({
               path: '/api/test/edit?id=' + this.test.id
             })
-          } else {
-            this.$router.push({path: '/api/test/list/all'})
           }
+          // 发送广播，刷新 head 上的最新列表
+          ApiEvent.$emit(LIST_CHANGE);
         })
       },
       runTest() {
@@ -176,35 +230,73 @@
       },
       saveRunTest() {
         this.change = false;
-
+        if (!this.validateEnableTest()) {
+          this.$warning(this.$t('api_test.enable_validate_tip'));
+          return;
+        }
         this.save(() => {
           this.$success(this.$t('commons.save_success'));
           this.runTest();
+          // 发送广播，刷新 head 上的最新列表
+          ApiEvent.$emit(LIST_CHANGE);
         })
       },
-      cancel() {
-        // console.log(this.test.toJMX().xml)
-        this.$router.push('/api/test/list/all');
+      getBodyUploadFiles() {
+        let bodyUploadFiles = [];
+        this.test.bodyUploadIds = [];
+        this.test.scenarioDefinition.forEach(scenario => {
+          scenario.requests.forEach(request => {
+            if (request.body) {
+              request.body.kvs.forEach(param => {
+                if (param.files) {
+                  param.files.forEach(item => {
+                    if (item.file) {
+                      let fileId = getUUID().substring(0, 8);
+                      item.name = item.file.name;
+                      item.id = fileId;
+                      this.test.bodyUploadIds.push(fileId);
+                      bodyUploadFiles.push(item.file);
+                    }
+                  });
+                }
+              });
+            }
+          });
+        });
+        return bodyUploadFiles;
       },
-      getOptions(url) {
-        let formData = new FormData();
-        let requestJson = JSON.stringify(this.test);
-
-        formData.append('request', new Blob([requestJson], {
-          type: "application/json"
-        }));
-        let jmx = this.test.toJMX();
-        let blob = new Blob([jmx.xml], {type: "application/octet-stream"});
-        formData.append("files", new File([blob], jmx.name));
-
-        return {
-          method: 'POST',
-          url: url,
-          data: formData,
-          headers: {
-            'Content-Type': undefined
+      validateEnableTest() {
+        for (let scenario of this.test.scenarioDefinition) {
+          if (scenario.enable) {
+            for (let request of scenario.requests) {
+              if (request.enable) {
+                return true;
+              }
+            }
           }
-        };
+        }
+        return false;
+      },
+      resetBodyFile() {
+        //下次保存不再上传已传文件
+        this.test.scenarioDefinition.forEach(scenario => {
+          scenario.requests.forEach(request => {
+            if (request.body) {
+              request.body.kvs.forEach(param => {
+                if (param.files) {
+                  param.files.forEach(item => {
+                    if (item.file) {
+                      item.file = undefined;
+                    }
+                  });
+                }
+              });
+            }
+          });
+        });
+      },
+      cancel() {
+        this.$router.push('/api/test/list/all');
       },
       handleCommand(command) {
         switch (command) {
@@ -254,18 +346,58 @@
           return false;
         }
         return true;
-      }
+      },
+      runDebug(scenario) {
+        if (this.create) {
+          this.$warning(this.$t('api_test.environment.please_save_test'));
+          return;
+        }
+
+        let url = "/api/run/debug";
+        let runningTest = new Test();
+        Object.assign(runningTest, this.test);
+        let bodyFiles = this.getBodyUploadFiles();
+        runningTest.scenarioDefinition = [];
+        runningTest.scenarioDefinition.push(scenario);
+        let validator = runningTest.isValid();
+        if (!validator.isValid) {
+          this.$warning(this.$t(validator.info));
+          return;
+        }
+
+        let jmx = runningTest.toJMX();
+        let blob = new Blob([jmx.xml], {type: "application/octet-stream"});
+        let file = new File([blob], jmx.name);
+        this.$fileUpload(url, file, bodyFiles, this.test, response => {
+          this.debugReportId = response.data;
+          this.resetBodyFile();
+        });
+      },
+      handleEvent(event) {
+        if (event.keyCode === 83 && event.ctrlKey) {
+          console.log('拦截到 ctrl + s');//ctrl+s
+          this.saveTest();
+          event.preventDefault();
+          event.returnValue = false;
+          return false;
+        }
+      },
     },
 
     created() {
       this.init();
+      //
+      document.addEventListener('keydown', this.handleEvent)
+    },
+    beforeDestroy() {
+      document.removeEventListener('keydown', this.handleEvent);
     }
   }
 </script>
 
 <style scoped>
   .test-container {
-    height: calc(100vh - 150px);
+    height: calc(100vh - 155px);
     min-height: 600px;
   }
 

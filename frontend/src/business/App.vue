@@ -1,7 +1,11 @@
 <template>
   <el-col v-if="auth">
+    <el-row v-if="licenseHeader != null">
+      <el-col>
+        <component :is="licenseHeader"></component>
+      </el-col>
+    </el-row>
     <el-row id="header-top" type="flex" justify="space-between" align="middle">
-
       <el-col :span="12">
         <a class="logo"/>
         <ms-top-menus/>
@@ -25,19 +29,31 @@
   import MsUser from "./components/common/head/HeaderUser";
   import MsHeaderOrgWs from "./components/common/head/HeaderOrgWs";
   import MsLanguageSwitch from "./components/common/head/LanguageSwitch";
+  import {saveLocalStorage} from "../common/js/utils";
+
+  const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
+  const header = requireComponent.keys().length > 0 ? requireComponent("./license/LicenseMessage.vue") : {};
 
   export default {
     name: 'app',
+    props: {},
     data() {
       return {
-        auth: false
+        licenseHeader: null,
+        auth: false,
+        header: {},
       }
     },
     beforeCreate() {
       this.$get("/isLogin").then(response => {
         if (response.data.success) {
-          this.$setLang(response.data.data);
+          this.$setLang(response.data.data.language);
+          saveLocalStorage(response.data);
           this.auth = true;
+          // 是否显示校验信息
+          if (header.default !== undefined) {
+            this.licenseHeader = "LicenseMessage";
+          }
         } else {
           window.location.href = "/login"
         }
@@ -45,10 +61,17 @@
         window.location.href = "/login"
       });
     },
-    components: {MsLanguageSwitch, MsUser, MsView, MsTopMenus, MsHeaderOrgWs},
-    methods: {}
+    components: {
+      MsLanguageSwitch,
+      MsUser,
+      MsView,
+      MsTopMenus,
+      MsHeaderOrgWs,
+      "LicenseMessage": header.default
+    }
   }
 </script>
+
 
 <style scoped>
   #header-top {
@@ -96,5 +119,12 @@
   .align-right {
     float: right;
   }
-</style>
 
+  .license-head {
+    height: 30px;
+    background: #BA331B;
+    text-align: center;
+    line-height: 30px;
+    color: white;
+  }
+</style>

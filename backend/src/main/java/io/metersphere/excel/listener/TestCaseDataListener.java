@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import io.metersphere.base.domain.TestCaseWithBLOBs;
 import io.metersphere.commons.constants.TestCaseConstants;
 import io.metersphere.commons.utils.BeanUtils;
+import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.excel.domain.TestCaseExcelData;
 import io.metersphere.i18n.Translator;
 import io.metersphere.track.service.TestCaseService;
@@ -25,8 +26,9 @@ public class TestCaseDataListener extends EasyExcelListener<TestCaseExcelData> {
 
     Set<String> userIds;
 
-    public TestCaseDataListener(TestCaseService testCaseService, String projectId, Set<String> testCaseNames, Set<String> userIds) {
-        this.testCaseService = testCaseService;
+    public TestCaseDataListener(Class clazz, String projectId, Set<String> testCaseNames, Set<String> userIds) {
+        this.clazz = clazz;
+        this.testCaseService = (TestCaseService) CommonBeanFactory.getBean("testCaseService");
         this.projectId = projectId;
         this.testCaseNames = testCaseNames;
         this.userIds = userIds;
@@ -41,14 +43,18 @@ public class TestCaseDataListener extends EasyExcelListener<TestCaseExcelData> {
             String[] nodes = nodePath.split("/");
             if (nodes.length > TestCaseConstants.MAX_NODE_DEPTH + 1) {
                 stringBuilder.append(Translator.get("test_case_node_level_tip") +
-                        TestCaseConstants.MAX_NODE_DEPTH + Translator.get("test_case_node_level"));
+                        TestCaseConstants.MAX_NODE_DEPTH + Translator.get("test_case_node_level") + "; ");
             }
             for (int i = 0; i < nodes.length; i++) {
                 if (i != 0 && StringUtils.equals(nodes[i].trim(), "")) {
-                    stringBuilder.append(Translator.get("module_not_null"));
+                    stringBuilder.append(Translator.get("module_not_null") + "; ");
                     break;
                 }
             }
+        }
+
+        if (StringUtils.equals(data.getType(), TestCaseConstants.Type.Functional.getValue()) && StringUtils.equals(data.getMethod(), TestCaseConstants.Method.Auto.getValue())) {
+            stringBuilder.append(Translator.get("functional_method_tip") + "; ");
         }
 
         if (!userIds.contains(data.getMaintainer())) {

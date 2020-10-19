@@ -63,6 +63,8 @@ public class UserController {
     @RequiresRoles(RoleConstants.ADMIN)
     public void deleteUser(@PathVariable(value = "userId") String userId) {
         userService.deleteUser(userId);
+        // 踢掉在线用户
+        SessionUtils.kickOutUser(userId);
     }
 
     @PostMapping("/special/update")
@@ -128,7 +130,6 @@ public class UserController {
     }
 
     @GetMapping("/list")
-    @RequiresRoles(value = {RoleConstants.ADMIN, RoleConstants.ORG_ADMIN, RoleConstants.TEST_MANAGER}, logical = Logical.OR)
     public List<User> getUserList() {
         return userService.getUserList();
     }

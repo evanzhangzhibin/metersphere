@@ -21,37 +21,41 @@
               <el-col :span="12">
                 <el-button plain size="mini"
                            icon="el-icon-back"
-                           @click="cancel">{{$t('test_track.return')}}
+                           @click="cancel">{{ $t('test_track.return') }}
                 </el-button>
               </el-col>
 
               <el-col :span="12" class="head-right">
-                <span class="head-right-tip" v-if="index + 1 == testCases.length">
-                  {{$t('test_track.plan_view.pre_case')}} : {{testCases[index - 1] ? testCases[index - 1].name : ''}}
+                <span class="head-right-tip" v-if="index + 1 === testCases.length">
+                  {{ $t('test_track.plan_view.pre_case') }} : {{
+                    testCases[index - 1] ? testCases[index - 1].name : ''
+                  }}
                 </span>
-                <span class="head-right-tip" v-if="index + 1 != testCases.length">
-                  {{$t('test_track.plan_view.next_case')}} : {{testCases[index + 1] ? testCases[index + 1].name : ''}}
+                <span class="head-right-tip" v-if="index + 1 !== testCases.length">
+                  {{ $t('test_track.plan_view.next_case') }} : {{
+                    testCases[index + 1] ? testCases[index + 1].name : ''
+                  }}
                 </span>
 
                 <el-button plain size="mini" icon="el-icon-arrow-up"
                            :disabled="index + 1 <= 1"
                            @click="handlePre()"/>
-                <span>  {{index + 1}}/{{testCases.length}} </span>
+                <span>  {{ index + 1 }}/{{ testCases.length }} </span>
                 <el-button plain size="mini" icon="el-icon-arrow-down"
                            :disabled="index + 1 >= testCases.length"
                            @click="handleNext()"/>
                 <el-divider direction="vertical"></el-divider>
 
                 <el-button type="primary" size="mini" :disabled="isReadOnly" @click="saveCase()">
-                  {{$t('test_track.save')}}
+                  {{ $t('test_track.save') }}
                 </el-button>
               </el-col>
 
             </el-row>
 
-            <el-row style="margin-top: 0px;">
+            <el-row style="margin-top: 0;">
               <el-col>
-                <el-divider content-position="left">{{testCase.name}}</el-divider>
+                <el-divider content-position="left">{{ testCase.name }}</el-divider>
               </el-col>
             </el-row>
 
@@ -60,14 +64,14 @@
           <div class="case_container">
             <el-row>
               <el-col :span="4" :offset="1">
-                <span class="cast_label">{{$t('test_track.case.priority')}}：</span>
-                <span class="cast_item">{{testCase.priority}}</span>
+                <span class="cast_label">{{ $t('test_track.case.priority') }}：</span>
+                <span class="cast_item">{{ testCase.priority }}</span>
               </el-col>
               <el-col :span="5">
-                <span class="cast_label">{{$t('test_track.case.case_type')}}：</span>
-                <span class="cast_item" v-if="testCase.type == 'functional'">{{$t('commons.functional')}}</span>
-                <span class="cast_item" v-if="testCase.type == 'performance'">{{$t('commons.performance')}}</span>
-                <span class="cast_item" v-if="testCase.type == 'api'">{{$t('commons.api')}}</span>
+                <span class="cast_label">{{ $t('test_track.case.case_type') }}：</span>
+                <span class="cast_item" v-if="testCase.type === 'functional'">{{ $t('commons.functional') }}</span>
+                <span class="cast_item" v-if="testCase.type === 'performance'">{{ $t('commons.performance') }}</span>
+                <span class="cast_item" v-if="testCase.type === 'api'">{{ $t('commons.api') }}</span>
               </el-col>
               <el-col :span="13">
                 <test-plan-test-case-status-button class="status-button"
@@ -80,42 +84,50 @@
 
             <el-row>
               <el-col :span="4" :offset="1">
-                <span class="cast_label">{{$t('test_track.case.method')}}：</span>
-                <span v-if="testCase.method == 'manual'">{{$t('test_track.case.manual')}}</span>
-                <span v-if="testCase.method == 'auto'">{{$t('test_track.case.auto')}}</span>
+                <span class="cast_label">{{ $t('test_track.case.method') }}：</span>
+                <span v-if="testCase.method === 'manual'">{{ $t('test_track.case.manual') }}</span>
+                <span v-if="testCase.method === 'auto'">{{ $t('test_track.case.auto') }}</span>
               </el-col>
               <el-col :span="5">
-                <span class="cast_label">{{$t('test_track.case.module')}}：</span>
-                <span class="cast_item">{{testCase.nodePath}}</span>
+                <span class="cast_label">{{ $t('test_track.case.module') }}：</span>
+                <span class="cast_item">{{ testCase.nodePath }}</span>
               </el-col>
               <el-col :span="4" :offset="1">
-                <span class="cast_label">{{$t('test_track.case.prerequisite')}}：</span>
-                <span class="cast_item">{{testCase.prerequisite}}</span>
+                <span class="cast_label">{{ $t('test_track.plan.plan_project') }}：</span>
+                <span class="cast_item">{{ testCase.projectName }}</span>
               </el-col>
             </el-row>
 
-            <el-row v-if="testCase.method == 'auto' && testCase.testId">
+            <el-row>
+              <el-col :offset="1">
+                <span class="cast_label">{{ $t('test_track.case.prerequisite') }}：</span>
+                <span class="cast_item">{{ testCase.prerequisite }}</span>
+              </el-col>
+            </el-row>
+
+            <el-row v-if="testCase.method === 'auto' && testCase.testId">
               <el-col class="test-detail" :span="20" :offset="1">
                 <el-tabs v-model="activeTab" type="border-card" @tab-click="testTabChange">
                   <el-tab-pane name="detail" :label="$t('test_track.plan_view.test_detail')">
-                    <api-test-detail :is-read-only="isReadOnly" v-if="testCase.type == 'api'" @runTest="testRun"
+                    <api-test-detail :is-read-only="isReadOnly" v-if="testCase.type === 'api'" @runTest="testRun"
                                      :id="testCase.testId" ref="apiTestDetail"/>
-                    <performance-test-detail :is-read-only="isReadOnly" v-if="testCase.type == 'performance'"
+                    <performance-test-detail :is-read-only="isReadOnly" v-if="testCase.type === 'performance'"
                                              @runTest="testRun" :id="testCase.testId" ref="performanceTestDetail"/>
                   </el-tab-pane>
                   <el-tab-pane name="result" :label="$t('test_track.plan_view.test_result')">
-                    <api-test-result :report-id="testCase.reportId" v-if=" testCase.type == 'api'" ref="apiTestResult"/>
+                    <api-test-result :report-id="testCase.reportId" v-if=" testCase.type === 'api'"
+                                     ref="apiTestResult"/>
                     <performance-test-result :is-read-only="isReadOnly" :report-id="testCase.reportId"
-                                             v-if="testCase.type == 'performance'" ref="performanceTestResult"/>
+                                             v-if="testCase.type === 'performance'" ref="performanceTestResult"/>
                   </el-tab-pane>
                 </el-tabs>
               </el-col>
             </el-row>
 
-            <el-row v-if="testCase.method && testCase.method != 'auto'">
+            <el-row v-if="testCase.method && testCase.method !== 'auto'">
               <el-col :span="20" :offset="1">
                 <div>
-                  <span class="cast_label">{{$t('test_track.case.steps')}}：</span>
+                  <span class="cast_label">{{ $t('test_track.case.steps') }}：</span>
                 </div>
                 <el-table
                   :data="testCase.steptResults"
@@ -128,17 +140,30 @@
 
                   <el-table-column :label="$t('test_track.case.step_desc')" prop="desc" min-width="21%">
                     <template v-slot:default="scope">
-                      <span>{{scope.row.desc}}</span>
+                      <el-input
+                        size="mini"
+                        class="border-hidden"
+                        type="textarea"
+                        :autosize="{ minRows: 1, maxRows: 4}"
+                        :disabled="true"
+                        v-model="scope.row.desc"/>
                     </template>
                   </el-table-column>
                   <el-table-column :label="$t('test_track.case.expected_results')" prop="result" min-width="21%">
                     <template v-slot:default="scope">
-                      <span>{{scope.row.result}}</span>
+                      <el-input
+                        size="mini"
+                        class="border-hidden"
+                        type="textarea"
+                        :autosize="{ minRows: 1, maxRows: 4}"
+                        :disabled="true"
+                        v-model="scope.row.result"/>
                     </template>
                   </el-table-column>
                   <el-table-column :label="$t('test_track.plan_view.actual_result')" min-width="21%">
                     <template v-slot:default="scope">
                       <el-input
+                        class="table-edit-input"
                         size="mini"
                         type="textarea"
                         :autosize="{ minRows: 2, maxRows: 4}"
@@ -146,8 +171,7 @@
                         :disabled="isReadOnly"
                         v-model="scope.row.actualResult"
                         :placeholder="$t('commons.input_content')"
-                        clearable></el-input>
-                      <span>{{scope.row.actualResult}}</span>
+                        clearable/>
                     </template>
                   </el-table-column>
                   <el-table-column :label="$t('test_track.plan_view.step_result')" min-width="12%">
@@ -156,6 +180,7 @@
                         :disabled="isReadOnly"
                         v-model="scope.row.executeResult"
                         @change="stepResultChange()"
+                        filterable
                         size="mini">
                         <el-option :label="$t('test_track.plan_view.pass')" value="Pass"
                                    style="color: #7ebf50;"></el-option>
@@ -172,29 +197,98 @@
               </el-col>
             </el-row>
 
-            <el-row v-if="testCase.issues">
+            <el-row>
               <el-col :span="5" :offset="1">
                 <el-switch
                   :disabled="isReadOnly"
-                  v-model="testCase.issues.hasIssues"
+                  v-model="issuesSwitch"
                   @change="issuesChange"
                   :active-text="$t('test_track.plan_view.submit_issues')">
                 </el-switch>
+                <el-tooltip class="item" effect="dark"
+                            :content="$t('test_track.issue.platform_tip')"
+                            placement="right">
+                  <i class="el-icon-info"/>
+                </el-tooltip>
               </el-col>
             </el-row>
 
-            <el-row v-if="testCase.issues && testCase.issues.hasIssues">
+            <el-row v-if="issuesSwitch">
               <el-col :span="20" :offset="1" class="issues-edit">
+                <el-input
+                  type="text"
+                  :placeholder="$t('test_track.issue.input_title')"
+                  v-model="testCase.issues.title"
+                  maxlength="60"
+                  show-word-limit
+                />
                 <ckeditor :editor="editor" :disabled="isReadOnly" :config="editorConfig"
                           v-model="testCase.issues.content"/>
+                <el-row v-if="hasTapdId">
+                  {{ $t('test_track.issue.please_choose_current_owner') }}
+                  <el-select v-model="testCase.tapdUsers"
+                             multiple
+                             filterable
+                             style="width: 20%"
+                             :placeholder="$t('test_track.issue.please_choose_current_owner')"
+                             collapse-tags size="small">
+                    <el-option v-for="(userInfo, index) in users" :key="index" :label="userInfo.user"
+                               :value="userInfo.user"/>
+                  </el-select>
+                </el-row>
+                <el-button type="primary" size="small" @click="saveIssues">{{ $t('commons.save') }}</el-button>
+                <el-button size="small" @click="issuesSwitch=false">{{ $t('commons.cancel') }}</el-button>
+              </el-col>
+            </el-row>
+
+            <el-row>
+              <el-col :span="20" :offset="1" class="issues-edit">
+                <el-table border class="adjust-table" :data="issues" style="width: 100%">
+                  <el-table-column prop="id" :label="$t('test_track.issue.id')" show-overflow-tooltip/>
+                  <el-table-column prop="title" :label="$t('test_track.issue.title')" show-overflow-tooltip/>
+                  <el-table-column prop="description" :label="$t('test_track.issue.description')">
+                    <template v-slot:default="scope">
+                      <el-popover
+                        placement="left"
+                        width="400"
+                        trigger="hover"
+                      >
+                        <ckeditor :editor="editor" disabled :config="readConfig"
+                                  v-model="scope.row.description"/>
+                        <el-button slot="reference" type="text">{{ $t('test_track.issue.preview') }}</el-button>
+                      </el-popover>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="status" :label="$t('test_track.issue.status')"/>
+                  <el-table-column prop="platform" :label="$t('test_track.issue.platform')"/>
+                  <el-table-column :label="$t('test_track.issue.operate')">
+                    <template v-slot:default="scope">
+                      <el-tooltip :content="$t('test_track.issue.close')"
+                                  placement="top" :enterable="false">
+                        <el-button type="danger" icon="el-icon-circle-close" size="mini"
+                                   circle v-if="scope.row.platform === 'Local'"
+                                   @click="closeIssue(scope.row)"
+                        />
+                      </el-tooltip>
+                      <el-tooltip :content="$t('test_track.issue.delete')"
+                                  placement="top" :enterable="false">
+                        <el-button type="danger" icon="el-icon-delete" size="mini"
+                                   circle v-if="scope.row.platform === 'Local'"
+                                   @click="deleteIssue(scope.row)"
+                        />
+                      </el-tooltip>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </el-col>
             </el-row>
 
             <el-row>
               <el-col :span="15" :offset="1">
                 <div>
-                  <span class="cast_label">{{$t('commons.remark')}}：</span>
-                  <span v-if="testCase.remark == null || testCase.remark == ''" style="color: darkgrey">{{$t('commons.not_filled')}}</span>
+                  <span class="cast_label">{{ $t('commons.remark') }}：</span>
+                  <span v-if="testCase.remark == null || testCase.remark === ''"
+                        style="color: darkgrey">{{ $t('commons.not_filled') }}</span>
                 </div>
                 <div>
                   <el-input :rows="3"
@@ -219,287 +313,341 @@
 </template>
 
 <script>
-  import TestPlanTestCaseStatusButton from '../../common/TestPlanTestCaseStatusButton';
-  import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
-  import ApiTestDetail from "./test/ApiTestDetail";
-  import ApiTestResult from "./test/ApiTestResult";
-  import PerformanceTestDetail from "./test/PerformanceTestDetail";
-  import PerformanceTestResult from "./test/PerformanceTestResult";
+import TestPlanTestCaseStatusButton from '../../common/TestPlanTestCaseStatusButton';
+import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
+import ApiTestDetail from "./test/ApiTestDetail";
+import ApiTestResult from "./test/ApiTestResult";
+import PerformanceTestDetail from "./test/PerformanceTestDetail";
+import PerformanceTestResult from "./test/PerformanceTestResult";
+import {listenGoBack, removeGoBackListener} from "@/common/js/utils";
 
-  export default {
-    name: "TestPlanTestCaseEdit",
-    components: {
-      PerformanceTestResult,
-      PerformanceTestDetail,
-      ApiTestResult,
-      ApiTestDetail,
-      TestPlanTestCaseStatusButton
-    },
-    data() {
-      return {
-        result: {},
-        showDialog: false,
-        testCase: {},
-        index: 0,
-        testCases: [],
-        editor: ClassicEditor,
-        editorConfig: {
-          // 'increaseIndent','decreaseIndent'
-          toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'blockQuote', 'insertTable', '|', 'undo', 'redo'],
-        },
-        test: {},
-        activeTab: 'detail',
-        isFailure: false,
-      };
-    },
-    props: {
-      total: {
-        type: Number
+export default {
+  name: "TestPlanTestCaseEdit",
+  components: {
+    PerformanceTestResult,
+    PerformanceTestDetail,
+    ApiTestResult,
+    ApiTestDetail,
+    TestPlanTestCaseStatusButton
+  },
+  data() {
+    return {
+      result: {},
+      showDialog: false,
+      testCase: {},
+      index: 0,
+      issuesSwitch: false,
+      testCases: [],
+      issues: [],
+      editor: ClassicEditor,
+      editorConfig: {
+        toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'blockQuote', 'insertTable', '|', 'undo', 'redo'],
       },
-      searchParam: {
-        type: Object
-      },
-      isReadOnly: {
-        type: Boolean,
-        default: false
+      readConfig: {toolbar: []},
+      test: {},
+      activeTab: 'detail',
+      isFailure: true,
+      users: [],
+      hasTapdId: false
+    };
+  },
+  props: {
+    total: {
+      type: Number
+    },
+    searchParam: {
+      type: Object
+    },
+    isReadOnly: {
+      type: Boolean,
+      default: false
+    }
+  },
+  methods: {
+    handleClose() {
+      removeGoBackListener(this.handleClose);
+      this.showDialog = false;
+      this.searchParam.status = null;
+      this.$emit('update:search-param', this.searchParam);
+    },
+    cancel() {
+      this.handleClose();
+      this.$emit('refreshTable');
+    },
+    statusChange(status) {
+      this.testCase.status = status;
+      this.saveCase();
+    },
+    saveCase() {
+      let param = {};
+      param.id = this.testCase.id;
+      param.status = this.testCase.status;
+      param.results = [];
+
+      for (let i = 0; i < this.testCase.steptResults.length; i++) {
+        let result = {};
+        result.actualResult = this.testCase.steptResults[i].actualResult;
+        result.executeResult = this.testCase.steptResults[i].executeResult;
+        if (result.actualResult && result.actualResult.length > 300) {
+          this.$warning(this.$t('test_track.plan_view.actual_result')
+            + this.$t('test_track.length_less_than') + '300');
+          return;
+        }
+        param.results.push(result);
+      }
+
+      param.results = JSON.stringify(param.results);
+      this.$post('/test/plan/case/edit', param, () => {
+        this.$success(this.$t('commons.save_success'));
+        this.updateTestCases(param);
+        this.setPlanStatus(this.testCase.planId);
+        // 结果为Pass时 自动跳转到下一用例
+        if (this.testCase.status === 'Pass' && this.index < this.testCases.length - 1) {
+          this.handleNext();
+        }
+      });
+    },
+    updateTestCases(param) {
+      for (let i = 0; i < this.testCases.length; i++) {
+        let testCase = this.testCases[i];
+        if (testCase.id === param.id) {
+          testCase.results = param.results;
+          testCase.issues = param.issues;
+          testCase.status = param.status;
+          return;
+        }
       }
     },
-    methods: {
-      listenGoBack() {
-        //监听浏览器返回操作，关闭该对话框
-        if (window.history && window.history.pushState) {
-          history.pushState(null, null, document.URL);
-          window.addEventListener('popstate', this.goBack, false);
+    handleNext() {
+      this.index++;
+      this.getTestCase(this.index);
+    },
+    handlePre() {
+      this.index--;
+      this.getTestCase(this.index);
+    },
+    getTestCase(index) {
+      let testCase = this.testCases[index];
+      let item = {};
+      Object.assign(item, testCase);
+      item.results = JSON.parse(item.results);
+      item.steps = JSON.parse(item.steps);
+      if (item.issues) {
+        item.issues = JSON.parse(item.issues);
+      } else {
+        item.issues = {};
+        item.issues.hasIssues = false;
+      }
+      item.steptResults = [];
+      for (let i = 0; i < item.steps.length; i++) {
+        if (item.results[i]) {
+          item.steps[i].actualResult = item.results[i].actualResult;
+          item.steps[i].executeResult = item.results[i].executeResult;
         }
-      },
-      goBack() {
-        this.handleClose();
-      },
-      handleClose() {
-        //移除监听，防止监听其他页面
-        window.removeEventListener('popstate', this.goBack, false);
-        this.showDialog = false;
-      },
-      cancel() {
-        this.handleClose();
-        this.$emit('refreshTable');
-      },
-      statusChange(status) {
-        this.testCase.status = status;
-      },
-      saveCase() {
-        let param = {};
-        param.id = this.testCase.id;
-        param.status = this.testCase.status;
-        param.results = [];
+        item.steptResults.push(item.steps[i]);
+      }
+      this.testCase = item;
+      this.initTest();
+      this.getIssues(testCase.caseId);
+      this.stepResultChange();
+    },
+    openTestCaseEdit(testCase) {
+      this.showDialog = true;
+      this.issuesSwitch = false;
+      this.activeTab = 'detail';
+      listenGoBack(this.handleClose);
+      this.initData(testCase);
+    },
+    initTest() {
+      this.$nextTick(() => {
+        if (this.testCase.method === 'auto') {
+          if (this.$refs.apiTestDetail && this.testCase.type === 'api') {
 
-        for (let i = 0; i < this.testCase.steptResults.length; i++) {
-          let result = {};
-          result.actualResult = this.testCase.steptResults[i].actualResult;
-          result.executeResult = this.testCase.steptResults[i].executeResult;
-          if (result.actualResult && result.actualResult.length > 300) {
-            this.$warning(this.$t('test_track.plan_view.actual_result')
-              + this.$t('test_track.length_less_than') + '300');
-            return;
+            this.$refs.apiTestDetail.init();
+          } else if (this.testCase.type === 'performance') {
+            this.$refs.performanceTestDetail.init();
           }
-          param.results.push(result);
         }
-
-        param.results = JSON.stringify(param.results);
-        param.issues = JSON.stringify(this.testCase.issues);
-        this.$post('/test/plan/case/edit', param, () => {
-          this.$success(this.$t('commons.save_success'));
-          this.updateTestCases(param);
-          this.setPlanStatus(this.testCase.planId);
-        });
-      },
-      updateTestCases(param) {
+      });
+    },
+    testRun(reportId) {
+      this.testCase.reportId = reportId;
+      this.saveReport(reportId);
+      this.activeTab = 'result';
+    },
+    testTabChange(data) {
+      if (this.testCase.type === 'performance' && data.paneName === 'result') {
+        this.$refs.performanceTestResult.checkReportStatus();
+        this.$refs.performanceTestResult.init();
+      }
+    },
+    saveReport(reportId) {
+      this.$post('/test/plan/case/edit', {id: this.testCase.id, reportId: reportId});
+    },
+    initData(testCase) {
+      this.result = this.$post('/test/plan/case/list/all', this.searchParam, response => {
+        this.testCases = response.data;
         for (let i = 0; i < this.testCases.length; i++) {
-          let testCase = this.testCases[i];
-          if (testCase.id === param.id) {
-            testCase.results = param.results;
-            testCase.issues = param.issues;
-            testCase.status = param.status;
-            return;
+          if (this.testCases[i].id === testCase.id) {
+            this.index = i;
+            this.getTestCase(i);
+            this.getRelatedTest();
           }
         }
-      },
-      handleNext() {
-        this.index++;
-        this.getTestCase(this.index);
-      },
-      handlePre() {
-        this.index--;
-        this.getTestCase(this.index);
-      },
-      getTestCase(index) {
-        let testCase = this.testCases[index];
-        let item = {};
-        Object.assign(item, testCase);
-        item.results = JSON.parse(item.results);
-        item.steps = JSON.parse(item.steps);
-        if (item.issues) {
-          item.issues = JSON.parse(item.issues);
-        } else {
-          item.issues = {};
-          item.issues.hasIssues = false;
-        }
-        item.steptResults = [];
-        for (let i = 0; i < item.steps.length; i++) {
-          if (item.results[i]) {
-            item.steps[i].actualResult = item.results[i].actualResult;
-            item.steps[i].executeResult = item.results[i].executeResult;
-          }
-          item.steptResults.push(item.steps[i]);
-        }
-        this.testCase = item;
-        this.initTest();
-        this.stepResultChange();
-      },
-      openTestCaseEdit(testCase) {
-        this.showDialog = true;
-        this.activeTab = 'detail';
-        this.listenGoBack();
-        this.initData(testCase);
-      },
-      initTest() {
-        this.$nextTick(() => {
-          if (this.testCase.method == 'auto') {
-            if (this.$refs.apiTestDetail && this.testCase.type == 'api') {
-              this.$refs.apiTestDetail.init();
-            } else if (this.testCase.type == 'performance') {
-              this.$refs.performanceTestDetail.init();
-            }
+      });
+    },
+    getRelatedTest() {
+      if (this.testCase.method === 'auto' && this.testCase.testId && this.testCase.testId !== 'other') {
+        this.$get('/' + this.testCase.type + '/get/' + this.testCase.testId, response => {
+          let data = response.data;
+          if (data) {
+            this.test = data;
+          } else {
+            this.test = {};
+            this.$warning(this.$t("test_track.case.relate_test_not_find"));
           }
         });
-      },
-      testRun(reportId) {
-        this.testCase.reportId = reportId;
-        this.saveReport(reportId);
-      },
-      testTabChange(data) {
-        if (this.testCase.type == 'performance' && data.paneName == 'result') {
-          this.$refs.performanceTestResult.checkReportStatus();
-          this.$refs.performanceTestResult.init();
-        }
-      },
-      saveReport(reportId) {
-        this.$post('/test/plan/case/edit', {id: this.testCase.id, reportId: reportId});
-      },
-      initData(testCase) {
-        this.result = this.$post('/test/plan/case/list/all', this.searchParam, response => {
-          this.testCases = response.data;
-          for (let i = 0; i < this.testCases.length; i++) {
-            if (this.testCases[i].id === testCase.id) {
-              this.index = i;
-              this.getTestCase(i);
-              this.getRelatedTest();
-            }
-          }
+      } else if (this.testCase.testId === 'other' && this.testCase.method === 'auto') {
+        this.$warning(this.$t("test_track.case.other_relate_test_not_find"));
+      }
+    },
+    issuesChange() {
+      if (this.issuesSwitch) {
+        let desc = this.addPLabel('[' + this.$t('test_track.plan_view.operate_step') + ']');
+        let result = this.addPLabel('[' + this.$t('test_track.case.expected_results') + ']');
+        let actualResult = this.addPLabel('[' + this.$t('test_track.plan_view.actual_result') + ']');
+        this.testCase.steps.forEach(step => {
+          let stepPrefix = this.$t('test_track.plan_view.step') + step.num + ':';
+          desc += this.addPLabel(stepPrefix + (step.desc === undefined ? '' : step.desc));
+          result += this.addPLabel(stepPrefix + (step.result === undefined ? '' : step.result));
+          actualResult += this.addPLabel(stepPrefix + (step.actualResult === undefined ? '' : step.actualResult));
         });
-      },
-      getRelatedTest() {
-        if (this.testCase.method == 'auto' && this.testCase.testId) {
-          this.$get('/' + this.testCase.type + '/get/' + this.testCase.testId, response => {
-            let data = response.data;
-            if (data) {
-              this.test = data;
-            } else {
-              this.test = {};
-              this.$warning(this.$t("test_track.case.relate_test_not_find"));
-            }
-          });
-        }
-      },
-      issuesChange() {
-        if (this.testCase.issues.hasIssues) {
-          let desc = this.addPLabel('[' + this.$t('test_track.plan_view.operate_step') + ']');
-          let result = this.addPLabel('[' + this.$t('test_track.case.expected_results') + ']');
-          let executeResult = this.addPLabel('[' + this.$t('test_track.plan_view.actual_result') + ']');
-          this.testCase.steps.forEach(step => {
-            let stepPrefix = this.$t('test_track.plan_view.step') + step.num + ':';
-            desc += this.addPLabel(stepPrefix + (step.desc == undefined ? '' : step.desc));
-            result += this.addPLabel(stepPrefix + (step.result == undefined ? '' : step.result));
-            executeResult += this.addPLabel(stepPrefix + (step.executeResult == undefined ? '' : step.executeResult));
-          });
-          this.testCase.issues.content = desc + this.addPLabel('') + result + this.addPLabel('') + executeResult + this.addPLabel('');
-        }
-      },
-      addPLabel(str) {
-        return "<p>" + str + "</p>";
-      },
-      setPlanStatus(planId) {
-        this.$post('/test/plan/edit/status/' + planId);
-      },
-      stepResultChange() {
+        this.testCase.issues.content = desc + this.addPLabel('') + result + this.addPLabel('') + actualResult + this.addPLabel('');
+
+        this.$get("/test/case/project/" + this.testCase.caseId, res => {
+          const project = res.data;
+          if (project.tapdId) {
+            this.hasTapdId = true;
+            this.result = this.$get("/issues/tapd/user/" + this.testCase.caseId, response => {
+              this.users = response.data;
+            })
+          }
+        })
+      }
+    },
+    addPLabel(str) {
+      return "<p>" + str + "</p>";
+    },
+    setPlanStatus(planId) {
+      this.$post('/test/plan/edit/status/' + planId);
+    },
+    stepResultChange() {
+      if (this.testCase.method === 'manual') {
         this.isFailure = this.testCase.steptResults.filter(s => {
-          return !s.executeResult || s.executeResult === 'Failure' || s.executeResult === 'Blocking';
+          return s.executeResult === 'Failure' || s.executeResult === 'Blocking';
         }).length > 0;
       }
+    },
+    saveIssues() {
+      if (!this.testCase.issues.title || !this.testCase.issues.content) {
+        this.$warning(this.$t('test_track.issue.title_description_required'));
+        return;
+      }
+
+      let param = {};
+      param.title = this.testCase.issues.title;
+      param.content = this.testCase.issues.content;
+      param.testCaseId = this.testCase.caseId;
+      param.tapdUsers = this.testCase.tapdUsers;
+
+      this.result = this.$post("/issues/add", param, () => {
+        this.$success(this.$t('commons.save_success'));
+        this.getIssues(param.testCaseId);
+      });
+
+      this.issuesSwitch = false;
+      this.testCase.issues.title = "";
+      this.testCase.issues.content = "";
+      this.testCase.tapdUsers = [];
+    },
+    getIssues(caseId) {
+      this.result = this.$get("/issues/get/" + caseId, response => {
+        this.issues = response.data;
+      })
+    },
+    closeIssue(row) {
+      if (row.status === 'closed') {
+        this.$success(this.$t('test_track.issue.close_success'));
+      } else {
+        this.result = this.$get("/issues/close/" + row.id, () => {
+          this.getIssues(this.testCase.caseId);
+          this.$success(this.$t('test_track.issue.close_success'));
+        });
+      }
+    },
+    deleteIssue(row) {
+      this.result = this.$get("/issues/delete/" + row.id, () => {
+        this.getIssues(this.testCase.caseId);
+        this.$success(this.$t('commons.delete_success'));
+      })
     }
   }
+}
 </script>
 
 <style scoped>
 
+.border-hidden >>> .el-textarea__inner {
+  border-style: hidden;
+  background-color: white;
+  color: #606266;
+}
 
-  .tb-edit .el-textarea {
-    display: none;
-  }
+.cast_label {
+  color: dimgray;
+}
 
-  .tb-edit .current-row .el-textarea {
-    display: block;
-  }
+.status-button {
+  padding-left: 4%;
+}
 
-  .tb-edit .current-row .el-textarea + span {
-    display: none;
-  }
+.head-right {
+  text-align: right;
+}
 
-  .cast_label {
-    color: dimgray;
-  }
+.el-col:not(.test-detail) {
+  line-height: 50px;
+}
 
-  .status-button {
-    padding-left: 4%;
-  }
+.issues-edit >>> p {
+  line-height: 16px;
+}
 
-  .head-right {
-    text-align: right;
-  }
+.status-button {
+  float: right;
+}
 
-  .el-col:not(.test-detail) {
-    line-height: 50px;
-  }
+.head-right-tip {
+  color: darkgrey;
+}
 
-  .issues-edit >>> p {
-    line-height: 16px;
-  }
+.el-scrollbar {
+  height: 100%;
+}
 
-  .status-button {
-    float: right;
-  }
+.container {
+  height: 100vh;
+}
 
-  .head-right-tip {
-    color: darkgrey;
-  }
+.case_container > .el-row {
+  margin-top: 1%;
+}
 
-  .el-scrollbar {
-    height: 100%;
-  }
+.el-switch >>> .el-switch__label {
+  color: dimgray;
+}
 
-  .container {
-    height: 100vh;
-  }
-
-  .case_container > .el-row {
-    margin-top: 1%;
-  }
-
-  .el-switch >>> .el-switch__label {
-    color: dimgray;
-  }
-
-  .el-switch >>> .el-switch__label.is-active {
-    color: #409EFF;
-  }
+.el-switch >>> .el-switch__label.is-active {
+  color: #409EFF;
+}
 </style>

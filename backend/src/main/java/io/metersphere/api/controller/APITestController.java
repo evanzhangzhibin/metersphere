@@ -11,12 +11,16 @@ import io.metersphere.commons.constants.RoleConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
 import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.controller.request.QueryScheduleRequest;
+import io.metersphere.dto.ScheduleDao;
+import io.metersphere.service.CheckOwnerService;
 import org.apache.shiro.authz.annotation.Logical;
 import org.apache.shiro.authz.annotation.RequiresRoles;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
+
 import java.util.List;
 
 @RestController
@@ -25,12 +29,15 @@ import java.util.List;
 public class APITestController {
     @Resource
     private APITestService apiTestService;
+    @Resource
+    private CheckOwnerService checkownerService;
 
     @GetMapping("recent/{count}")
     public List<APITestResult> recentTest(@PathVariable int count) {
         String currentWorkspaceId = SessionUtils.getCurrentWorkspaceId();
         QueryAPITestRequest request = new QueryAPITestRequest();
         request.setWorkspaceId(currentWorkspaceId);
+        request.setUserId(SessionUtils.getUserId());
         PageHelper.startPage(1, count, true);
         return apiTestService.recentTest(request);
     }
@@ -42,14 +49,15 @@ public class APITestController {
         return PageUtils.setPageInfo(page, apiTestService.list(request));
     }
 
-    @GetMapping("/list/{projectId}")
-    public List<ApiTest> list(@PathVariable String projectId) {
-        return apiTestService.getApiTestByProjectId(projectId);
+    @PostMapping("/list/ids")
+    public List<ApiTest> listByIds(@RequestBody QueryAPITestRequest request) {
+        return apiTestService.listByIds(request);
     }
 
-    @GetMapping("/state/get/{testId}")
-    public ApiTest apiState(@PathVariable String testId) {
-        return apiTestService.getApiTestByTestId(testId);
+    @GetMapping("/list/{projectId}")
+    public List<ApiTest> list(@PathVariable String projectId) {
+        checkownerService.checkProjectOwner(projectId);
+        return apiTestService.getApiTestByProjectId(projectId);
     }
 
     @PostMapping(value = "/schedule/update")
@@ -63,13 +71,19 @@ public class APITestController {
     }
 
     @PostMapping(value = "/create", consumes = {"multipart/form-data"})
-    public void create(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "files") List<MultipartFile> files) {
-        apiTestService.create(request, files);
+    public void create(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+        apiTestService.create(request, file, bodyFiles);
+    }
+
+    @PostMapping(value = "/create/merge", consumes = {"multipart/form-data"})
+    public void mergeCreate(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "selectIds") List<String> selectIds) {
+        apiTestService.mergeCreate(request, file, selectIds);
     }
 
     @PostMapping(value = "/update", consumes = {"multipart/form-data"})
-    public void update(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "files") List<MultipartFile> files) {
-        apiTestService.update(request, files);
+    public void update(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+        checkownerService.checkApiTestOwner(request.getId());
+        apiTestService.update(request, file, bodyFiles);
     }
 
     @PostMapping(value = "/copy")
@@ -79,17 +93,31 @@ public class APITestController {
 
     @GetMapping("/get/{testId}")
     public APITestResult get(@PathVariable String testId) {
+        checkownerService.checkApiTestOwner(testId);
         return apiTestService.get(testId);
     }
 
+
     @PostMapping("/delete")
     public void delete(@RequestBody DeleteAPITestRequest request) {
-        apiTestService.delete(request.getId());
+        String testId = request.getId();
+        checkownerService.checkApiTestOwner(testId);
+        apiTestService.delete(testId);
     }
 
     @PostMapping(value = "/run")
     public String run(@RequestBody SaveAPITestRequest request) {
         return apiTestService.run(request);
+    }
+
+    @PostMapping(value = "/run/debug", consumes = {"multipart/form-data"})
+    public String runDebug(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+        return apiTestService.runDebug(request, file, bodyFiles);
+    }
+
+    @PostMapping(value = "/checkName")
+    public void checkName(@RequestBody SaveAPITestRequest request) {
+        apiTestService.checkName(request);
     }
 
     @PostMapping(value = "/import", consumes = {"multipart/form-data"})
@@ -101,5 +129,16 @@ public class APITestController {
     @PostMapping("/dubbo/providers")
     public List<DubboProvider> getProviders(@RequestBody RegistryCenter registry) {
         return apiTestService.getProviders(registry);
+    }
+
+    @PostMapping("/list/schedule/{goPage}/{pageSize}")
+    public List<ScheduleDao> listSchedule(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryScheduleRequest request) {
+        Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
+        return apiTestService.listSchedule(request);
+    }
+
+    @PostMapping("/list/schedule")
+    public List<ScheduleDao> listSchedule(@RequestBody QueryScheduleRequest request) {
+        return apiTestService.listSchedule(request);
     }
 }

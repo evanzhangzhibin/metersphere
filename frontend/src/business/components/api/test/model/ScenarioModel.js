@@ -1,19 +1,34 @@
 import {
-  Element,
-  TestElement,
-  HashTree,
-  TestPlan,
-  ThreadGroup,
-  HeaderManager,
-  HTTPSamplerProxy,
-  HTTPSamplerArguments,
   Arguments,
+  CookieManager,
+  DNSCacheManager,
+  DubboSample,
   DurationAssertion,
+  Element,
+  HashTree,
+  HeaderManager,
+  HTTPSamplerArguments,
+  HTTPsamplerFiles,
+  HTTPSamplerProxy,
+  JDBCDataSource,
+  JDBCSampler,
+  JSONPathAssertion,
+  JSONPostProcessor,
+  JSR223PostProcessor,
+  JSR223PreProcessor,
+  RegexExtractor,
   ResponseCodeAssertion,
   ResponseDataAssertion,
   ResponseHeadersAssertion,
-  RegexExtractor, JSONPostProcessor, XPath2Extractor, DubboSample,
+  TestElement,
+  TestPlan,
+  ThreadGroup,
+  XPath2Extractor,
+  IfController as JMXIfController,
+  ConstantTimer as JMXConstantTimer, TCPSampler,
 } from "./JMX";
+import Mock from "mockjs";
+import {funcFilters} from "@/common/js/func-filter";
 
 export const uuid = function () {
   let d = new Date().getTime()
@@ -29,6 +44,37 @@ export const uuid = function () {
     }
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
+}
+
+export const BODY_FILE_DIR = "/opt/metersphere/data/body"; //存放body文件上传目录
+
+export const calculate = function (itemValue) {
+  if (!itemValue) {
+    return;
+  }
+  try {
+    if (itemValue.trim().startsWith("${")) {
+      // jmeter 内置函数不做处理
+      return itemValue;
+    }
+    let funcs = itemValue.split("|");
+    let value = Mock.mock(funcs[0].trim());
+    if (funcs.length === 1) {
+      return value;
+    }
+    for (let i = 1; i < funcs.length; i++) {
+      let func = funcs[i].trim();
+      let args = func.split(":");
+      let strings = [];
+      if (args[1]) {
+        strings = args[1].split(",");
+      }
+      value = funcFilters[args[0].trim()](value, ...strings);
+    }
+    return value;
+  } catch (e) {
+    return itemValue;
+  }
 }
 
 export const BODY_TYPE = {
@@ -47,6 +93,7 @@ export const BODY_FORMAT = {
 export const ASSERTION_TYPE = {
   TEXT: "Text",
   REGEX: "Regex",
+  JSON_PATH: "JSON",
   DURATION: "Duration"
 }
 
@@ -64,13 +111,16 @@ export const EXTRACT_TYPE = {
 
 export class BaseConfig {
 
-  set(options) {
+  set(options, notUndefined) {
     options = this.initOptions(options)
-
     for (let name in options) {
       if (options.hasOwnProperty(name)) {
         if (!(this[name] instanceof Array)) {
-          this[name] = options[name];
+          if (notUndefined === true) {
+            this[name] = options[name] === undefined ? this[name] : options[name];
+          } else {
+            this[name] = options[name];
+          }
         }
       }
     }
@@ -102,7 +152,7 @@ export class Test extends BaseConfig {
   constructor(options) {
     super();
     this.type = "MS API CONFIG";
-    this.version = '1.1.0';
+    this.version = '1.3.0';
     this.id = uuid();
     this.name = undefined;
     this.projectId = undefined;
@@ -161,6 +211,7 @@ export class Test extends BaseConfig {
 export class Scenario extends BaseConfig {
   constructor(options = {}) {
     super();
+    this.id = undefined;
     this.name = undefined;
     this.url = undefined;
     this.variables = [];
@@ -169,30 +220,49 @@ export class Scenario extends BaseConfig {
     this.environmentId = undefined;
     this.dubboConfig = undefined;
     this.environment = undefined;
+    this.enableCookieShare = false;
+    this.enable = true;
+    this.databaseConfigs = [];
+    this.tcpConfig = undefined;
 
     this.set(options);
-    this.sets({variables: KeyValue, headers: KeyValue, requests: RequestFactory}, options);
+    this.sets({
+      variables: KeyValue,
+      headers: KeyValue,
+      requests: RequestFactory,
+      databaseConfigs: DatabaseConfig
+    }, options);
   }
 
-  initOptions(options) {
-    options = options || {};
+  initOptions(options = {}) {
+    options.id = options.id || uuid();
     options.requests = options.requests || [new RequestFactory()];
+    options.databaseConfigs = options.databaseConfigs || [];
     options.dubboConfig = new DubboConfig(options.dubboConfig);
+    options.tcpConfig = new TCPConfig(options.tcpConfig);
     return options;
   }
 
   clone() {
-    return new Scenario(this);
+    let clone = new Scenario(this);
+    clone.id = uuid();
+    return clone;
   }
 
   isValid() {
-    for (let i = 0; i < this.requests.length; i++) {
-      let validator = this.requests[i].isValid(this.environmentId);
-      if (!validator.isValid) {
-        return validator;
+    if (this.enable) {
+      for (let i = 0; i < this.requests.length; i++) {
+        let validator = this.requests[i].isValid(this.environmentId, this.environment);
+        if (!validator.isValid) {
+          return validator;
+        }
       }
     }
     return {isValid: true};
+  }
+
+  isReference() {
+    return this.id.indexOf("#") !== -1
   }
 }
 
@@ -221,6 +291,8 @@ export class RequestFactory {
   static TYPES = {
     HTTP: "HTTP",
     DUBBO: "DUBBO",
+    SQL: "SQL",
+    TCP: "TCP",
   }
 
   constructor(options = {}) {
@@ -228,6 +300,10 @@ export class RequestFactory {
     switch (options.type) {
       case RequestFactory.TYPES.DUBBO:
         return new DubboRequest(options);
+      case RequestFactory.TYPES.SQL:
+        return new SqlRequest(options);
+      case RequestFactory.TYPES.TCP:
+        return new TCPRequest(options);
       default:
         return new HttpRequest(options);
     }
@@ -235,9 +311,18 @@ export class RequestFactory {
 }
 
 export class Request extends BaseConfig {
-  constructor(type) {
+  constructor(type, options = {}) {
     super();
     this.type = type;
+    this.id = options.id || uuid();
+    this.name = options.name;
+    this.enable = options.enable === undefined ? true : options.enable;
+    this.assertions = new Assertions(options.assertions);
+    this.extract = new Extract(options.extract);
+    this.jsr223PreProcessor = new JSR223Processor(options.jsr223PreProcessor);
+    this.jsr223PostProcessor = new JSR223Processor(options.jsr223PostProcessor);
+    this.timer = new ConstantTimer(options.timer);
+    this.controller = new IfController(options.controller);
   }
 
   showType() {
@@ -251,58 +336,53 @@ export class Request extends BaseConfig {
 
 export class HttpRequest extends Request {
   constructor(options) {
-    super(RequestFactory.TYPES.HTTP);
-    this.name = undefined;
-    this.url = undefined;
-    this.path = undefined;
-    this.method = undefined;
+    super(RequestFactory.TYPES.HTTP, options);
+    this.url = options.url;
+    this.path = options.path;
+    this.method = options.method || "GET";
     this.parameters = [];
     this.headers = [];
-    this.body = undefined;
-    this.assertions = undefined;
-    this.extract = undefined;
-    this.environment = undefined;
-    this.useEnvironment = undefined;
+    this.body = new Body(options.body);
+    this.environment = options.environment;
+    this.useEnvironment = options.useEnvironment;
+    this.debugReport = undefined;
+    this.doMultipartPost = options.doMultipartPost;
+    this.connectTimeout = options.connectTimeout || 60 * 1000;
+    this.responseTimeout = options.responseTimeout;
+    this.followRedirects = options.followRedirects === undefined ? true : options.followRedirects;
 
-    this.set(options);
     this.sets({parameters: KeyValue, headers: KeyValue}, options);
   }
 
-  initOptions(options) {
-    options = options || {};
-    options.method = options.method || "GET";
-    options.body = new Body(options.body);
-    options.assertions = new Assertions(options.assertions);
-    options.extract = new Extract(options.extract);
-    return options;
-  }
-
-  isValid(environmentId) {
-    if (this.useEnvironment) {
-      if (!environmentId) {
-        return {
-          isValid: false,
-          info: 'api_test.request.please_configure_environment_in_scenario'
+  isValid(environmentId, environment) {
+    if (this.enable) {
+      if (this.useEnvironment) {
+        if (!environmentId) {
+          return {
+            isValid: false,
+            info: 'api_test.request.please_configure_environment_in_scenario'
+          }
         }
-      } else if (!this.path) {
-        return {
-          isValid: false,
-          info: 'api_test.request.input_path'
+        if (!environment.config.httpConfig.socket) {
+          return {
+            isValid: false,
+            info: 'api_test.request.please_configure_socket_in_environment'
+          }
         }
-      }
-    } else {
-      if  (!this.url) {
-        return {
-          isValid: false,
-          info: 'api_test.request.input_url'
+      } else {
+        if (!this.url) {
+          return {
+            isValid: false,
+            info: 'api_test.request.input_url'
+          }
         }
-      }
-      try {
-        new URL(this.url)
-      } catch (e) {
-        return {
-          isValid: false,
-          info: 'api_test.request.url_invalid'
+        try {
+          new URL(this.url)
+        } catch (e) {
+          return {
+            isValid: false,
+            info: 'api_test.request.url_invalid'
+          }
         }
       }
     }
@@ -318,6 +398,7 @@ export class HttpRequest extends Request {
   showMethod() {
     return this.method.toUpperCase();
   }
+
 }
 
 export class DubboRequest extends Request {
@@ -327,8 +408,7 @@ export class DubboRequest extends Request {
   }
 
   constructor(options = {}) {
-    super(RequestFactory.TYPES.DUBBO);
-    this.name = options.name;
+    super(RequestFactory.TYPES.DUBBO, options);
     this.protocol = options.protocol || DubboRequest.PROTOCOLS.DUBBO;
     this.interface = options.interface;
     this.method = options.method;
@@ -337,43 +417,38 @@ export class DubboRequest extends Request {
     this.consumerAndService = new ConsumerAndService(options.consumerAndService);
     this.args = [];
     this.attachmentArgs = [];
-    this.assertions = new Assertions(options.assertions);
-    this.extract = new Extract(options.extract);
     // Scenario.dubboConfig
     this.dubboConfig = undefined;
+    this.debugReport = undefined;
 
     this.sets({args: KeyValue, attachmentArgs: KeyValue}, options);
   }
 
   isValid() {
-    if (!this.interface) {
-      return {
-        isValid: false,
-        info: 'api_test.request.dubbo.input_interface'
+    if (this.enable) {
+      if (!this.interface) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_interface'
+        }
       }
-    }
-    if (!this.method) {
-      return {
-        isValid: false,
-        info: 'api_test.request.dubbo.input_method'
+      if (!this.method) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_method'
+        }
       }
-    }
-    if (!this.configCenter.isValid()) {
-      return {
-        isValid: false,
-        info: 'api_test.request.dubbo.input_config_center'
+      if (!this.registryCenter.isValid()) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_registry_center'
+        }
       }
-    }
-    if (!this.registryCenter.isValid()) {
-      return {
-        isValid: false,
-        info: 'api_test.request.dubbo.input_registry_center'
-      }
-    }
-    if (!this.consumerAndService.isValid()) {
-      return {
-        isValid: false,
-        info: 'api_test.request.dubbo.input_consumer_service'
+      if (!this.consumerAndService.isValid()) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_consumer_service'
+        }
       }
     }
     return {
@@ -395,6 +470,118 @@ export class DubboRequest extends Request {
   }
 }
 
+export class SqlRequest extends Request {
+
+  constructor(options = {}) {
+    super(RequestFactory.TYPES.SQL, options);
+    this.useEnvironment = options.useEnvironment;
+    this.resultVariable = options.resultVariable;
+    this.variableNames = options.variableNames;
+    this.variables = [];
+    this.debugReport = undefined;
+    this.dataSource = options.dataSource;
+    this.query = options.query;
+    // this.queryType = options.queryType;
+    this.queryTimeout = options.queryTimeout || 60000;
+
+    this.sets({args: KeyValue, attachmentArgs: KeyValue, variables: KeyValue}, options);
+  }
+
+  isValid() {
+    if (this.enable) {
+      if (!this.name) {
+        return {
+          isValid: false,
+          info: 'api_test.request.sql.name_cannot_be_empty'
+        }
+      }
+      if (!this.dataSource) {
+        return {
+          isValid: false,
+          info: 'api_test.request.sql.dataSource_cannot_be_empty'
+        }
+      }
+    }
+    return {
+      isValid: true
+    }
+  }
+
+  showType() {
+    return "SQL";
+  }
+
+  showMethod() {
+    return "SQL";
+  }
+
+  clone() {
+    return new SqlRequest(this);
+  }
+}
+
+export class TCPConfig extends BaseConfig {
+  static CLASSES = ["TCPClientImpl", "BinaryTCPClientImpl", "LengthPrefixedBinaryTCPClientImpl"]
+
+  constructor(options = {}) {
+    super();
+    this.classname = options.classname || TCPConfig.CLASSES[0];
+    this.server = options.server;
+    this.port = options.port;
+    this.ctimeout = options.ctimeout; // Connect
+    this.timeout = options.timeout; // Response
+
+    this.reUseConnection = options.reUseConnection === undefined ? true : options.reUseConnection;
+    this.nodelay = options.nodelay === undefined ? false : options.nodelay;
+    this.closeConnection = options.closeConnection === undefined ? false : options.closeConnection;
+    this.soLinger = options.soLinger;
+    this.eolByte = options.eolByte;
+
+    this.username = options.username;
+    this.password = options.password;
+  }
+}
+
+export class TCPRequest extends Request {
+  constructor(options = {}) {
+    super(RequestFactory.TYPES.TCP, options);
+    this.useEnvironment = options.useEnvironment;
+    this.debugReport = undefined;
+
+    //设置TCPConfig的属性
+    this.set(new TCPConfig(options));
+
+    this.request = options.request;
+  }
+
+  isValid() {
+    if (this.enable) {
+      if (!this.server) {
+        return {
+          isValid: false,
+          info: 'api_test.request.tcp.server_cannot_be_empty'
+        }
+      }
+    }
+    return {
+      isValid: true
+    }
+  }
+
+  showType() {
+    return "TCP";
+  }
+
+  showMethod() {
+    return "TCP";
+  }
+
+  clone() {
+    return new TCPRequest(this);
+  }
+}
+
+
 export class ConfigCenter extends BaseConfig {
   static PROTOCOLS = ["zookeeper", "nacos", "apollo"];
 
@@ -413,6 +600,33 @@ export class ConfigCenter extends BaseConfig {
 
   isValid() {
     return !!this.protocol || !!this.group || !!this.namespace || !!this.username || !!this.address || !!this.password || !!this.timeout;
+  }
+}
+
+export class DatabaseConfig extends BaseConfig {
+  static DRIVER_CLASS = ["com.mysql.jdbc.Driver", "com.microsoft.sqlserver.jdbc.SQLServerDriver", "org.postgresql.Driver", "oracle.jdbc.OracleDriver"];
+
+  constructor(options) {
+    super();
+    this.id = undefined;
+    this.name = undefined;
+    this.poolMax = undefined;
+    this.timeout = undefined;
+    this.driver = undefined;
+    this.dbUrl = undefined;
+    this.username = undefined;
+    this.password = undefined;
+
+    this.set(options);
+  }
+
+  initOptions(options = {}) {
+    // options.id = options.id || uuid();
+    return options;
+  }
+
+  isValid() {
+    return !!this.name || !!this.poolMax || !!this.timeout || !!this.driver || !!this.dbUrl || !!this.username || !!this.password;
   }
 }
 
@@ -486,26 +700,27 @@ export class Body extends BaseConfig {
 }
 
 export class KeyValue extends BaseConfig {
-  constructor() {
-    let options, key, value;
-    if (arguments.length === 1) {
-      options = arguments[0];
-    }
-
-    if (arguments.length === 2) {
-      key = arguments[0];
-      value = arguments[1];
-    }
+  constructor(options) {
+    options = options || {};
+    options.enable = options.enable === undefined ? true : options.enable;
 
     super();
-    this.name = key;
-    this.value = value;
-
+    this.name = undefined;
+    this.value = undefined;
+    this.type = undefined;
+    this.files = undefined;
+    this.enable = undefined;
+    this.uuid = undefined;
+    this.contentType = undefined;
     this.set(options);
   }
 
   isValid() {
-    return !!this.name || !!this.value;
+    return (!!this.name || !!this.value) && this.type !== 'file';
+  }
+
+  isFile() {
+    return (!!this.name || !!this.value) && this.type === 'file';
   }
 }
 
@@ -514,10 +729,11 @@ export class Assertions extends BaseConfig {
     super();
     this.text = [];
     this.regex = [];
+    this.jsonPath = [];
     this.duration = undefined;
 
     this.set(options);
-    this.sets({text: Text, regex: Regex}, options);
+    this.sets({text: Text, regex: Regex, jsonPath: JSONPath}, options);
   }
 
   initOptions(options) {
@@ -531,6 +747,24 @@ export class AssertionType extends BaseConfig {
   constructor(type) {
     super();
     this.type = type;
+  }
+}
+
+export class BeanShellProcessor extends BaseConfig {
+  constructor(options) {
+    super();
+    this.script = undefined;
+    this.set(options);
+  }
+}
+
+
+export class JSR223Processor extends BaseConfig {
+  constructor(options) {
+    super();
+    this.script = undefined;
+    this.language = "beanshell";
+    this.set(options);
   }
 }
 
@@ -551,12 +785,28 @@ export class Regex extends AssertionType {
     this.subject = undefined;
     this.expression = undefined;
     this.description = undefined;
+    this.assumeSuccess = false;
 
     this.set(options);
   }
 
   isValid() {
     return !!this.subject && !!this.expression;
+  }
+}
+
+export class JSONPath extends AssertionType {
+  constructor(options) {
+    super(ASSERTION_TYPE.JSON_PATH);
+    this.expression = undefined;
+    this.expect = undefined;
+    this.description = undefined;
+
+    this.set(options);
+  }
+
+  isValid() {
+    return !!this.expression;
   }
 }
 
@@ -632,6 +882,80 @@ export class ExtractXPath extends ExtractCommon {
   }
 }
 
+export class Controller extends BaseConfig {
+  static TYPES = {
+    IF_CONTROLLER: "If Controller",
+  }
+
+  constructor(type, options = {}) {
+    super();
+    this.type = type
+    options.id = options.id || uuid();
+    options.enable = options.enable === undefined ? true : options.enable;
+  }
+}
+
+export class IfController extends Controller {
+  constructor(options = {}) {
+    super(Controller.TYPES.IF_CONTROLLER, options);
+    this.variable;
+    this.operator;
+    this.value;
+
+    this.set(options);
+  }
+
+  isValid() {
+    if (!!this.operator && this.operator.indexOf("empty") > 0) {
+      return !!this.variable && !!this.operator;
+    }
+    return !!this.variable && !!this.operator && !!this.value;
+  }
+
+  label() {
+    if (this.isValid()) {
+      let label = this.variable;
+      if (this.operator) label += " " + this.operator;
+      if (this.value) label += " " + this.value;
+      return label;
+    }
+    return "";
+  }
+}
+
+export class Timer extends BaseConfig {
+  static TYPES = {
+    CONSTANT_TIMER: "Constant Timer",
+  }
+
+  constructor(type, options = {}) {
+    super();
+    this.type = type;
+    options.id = options.id || uuid();
+    options.enable = options.enable === undefined ? true : options.enable;
+  }
+}
+
+export class ConstantTimer extends Timer {
+  constructor(options = {}) {
+    super(Timer.TYPES.CONSTANT_TIMER, options);
+    this.delay;
+
+    this.set(options);
+  }
+
+  isValid() {
+    return this.delay > 0;
+  }
+
+  label() {
+    if (this.isValid()) {
+      return this.delay + " ms";
+    }
+    return "";
+  }
+}
+
 /** ------------------------------------------------------------------------ **/
 const JMX_ASSERTION_CONDITION = {
   MATCH: 1,
@@ -644,7 +968,7 @@ const JMX_ASSERTION_CONDITION = {
 
 class JMXHttpRequest {
   constructor(request, environment) {
-    if (request && request instanceof HttpRequest && (request.url || request.path)) {
+    if (request && request instanceof HttpRequest) {
       this.useEnvironment = request.useEnvironment;
       this.method = request.method;
       if (!request.useEnvironment) {
@@ -652,34 +976,39 @@ class JMXHttpRequest {
           request.url = 'http://' + request.url;
         }
         let url = new URL(request.url);
-        this.hostname = decodeURIComponent(url.hostname);
+        this.domain = decodeURIComponent(url.hostname);
         this.port = url.port;
         this.protocol = url.protocol.split(":")[0];
-        this.pathname = this.getPostQueryParameters(request, decodeURIComponent(url.pathname));
+        this.path = this.getPostQueryParameters(request, decodeURIComponent(url.pathname));
       } else {
-        if (environment) {
-          this.port = environment.port;
-          this.protocol = environment.protocol;
-          this.domain = environment.domain;
-        }
-        this.path = this.getPostQueryParameters(request, decodeURIComponent(request.path));
+        this.domain = environment.config.httpConfig.domain;
+        this.port = environment.config.httpConfig.port;
+        this.protocol = environment.config.httpConfig.protocol;
+        let url = new URL(environment.config.httpConfig.protocol + "://" + environment.config.httpConfig.socket);
+        this.path = this.getPostQueryParameters(request, decodeURIComponent(url.pathname + (request.path ? request.path : '')));
       }
+      this.connectTimeout = request.connectTimeout;
+      this.responseTimeout = request.responseTimeout;
+      this.followRedirects = request.followRedirects;
+      this.doMultipartPost = request.doMultipartPost;
     }
   }
 
   getPostQueryParameters(request, path) {
     if (this.method.toUpperCase() !== "GET") {
-      path += '?';
       let parameters = [];
       request.parameters.forEach(parameter => {
-        if (parameter.name && parameter.value) {
+        if (parameter.name && parameter.value && parameter.enable === true) {
           parameters.push(parameter);
         }
       });
+      if (parameters.length > 0) {
+        path += '?';
+      }
       for (let i = 0; i < parameters.length; i++) {
         let parameter = parameters[i];
-        path += (encodeURIComponent(parameter.name) + '=' + encodeURIComponent(parameter.value));
-        if (i != parameters.length -1) {
+        path += (parameter.name + '=' + parameter.value);
+        if (i !== parameters.length - 1) {
           path += '&';
         }
       }
@@ -719,6 +1048,30 @@ class JMXDubboRequest {
   }
 }
 
+class JMXTCPRequest {
+  constructor(request, scenario) {
+    let obj = request.clone();
+    if (request.useEnvironment) {
+      obj.set(scenario.environment.config.tcpConfig, true);
+      return obj;
+    }
+
+    this.copy(this, scenario.tcpConfig);
+
+    return obj;
+  }
+
+  copy(target, source) {
+    for (let key in source) {
+      if (source.hasOwnProperty(key)) {
+        if (source[key] !== undefined && !target[key]) {
+          target[key] = source[key];
+        }
+      }
+    }
+  }
+}
+
 class JMeterTestPlan extends Element {
   constructor() {
     super('jmeterTestPlan', {
@@ -740,48 +1093,69 @@ class JMXGenerator {
     if (!test || !test.id || !(test instanceof Test)) return undefined;
 
     let testPlan = new TestPlan(test.name);
-    this.addScenarios(testPlan, test.scenarioDefinition);
+    this.addScenarios(testPlan, test.id, test.scenarioDefinition);
 
     this.jmeterTestPlan = new JMeterTestPlan();
     this.jmeterTestPlan.put(testPlan);
   }
 
-  addScenarios(testPlan, scenarios) {
+  addScenarios(testPlan, testId, scenarios) {
     scenarios.forEach(s => {
-      let scenario = s.clone();
 
-      let threadGroup = new ThreadGroup(scenario.name || "");
+      if (s.enable) {
+        let scenario = s.clone();
 
-      this.addScenarioVariables(threadGroup, scenario);
+        let threadGroup = new ThreadGroup(scenario.name || "");
 
-      this.addScenarioHeaders(threadGroup, scenario);
+        this.addScenarioVariables(threadGroup, scenario);
 
-      scenario.requests.forEach(request => {
-        if (!request.isValid()) return;
-        let sampler;
+        this.addScenarioHeaders(threadGroup, scenario);
 
-        if (request instanceof DubboRequest) {
-          sampler = new DubboSample(request.name || "", new JMXDubboRequest(request, scenario.dubboConfig));
-        }
+        this.addScenarioCookieManager(threadGroup, scenario);
 
-        if (request instanceof HttpRequest) {
-          sampler = new HTTPSamplerProxy(request.name || "", new JMXHttpRequest(request, scenario.environment));
-          this.addRequestHeader(sampler, request);
-          if (request.method.toUpperCase() === 'GET') {
-            this.addRequestArguments(sampler, request);
-          } else {
-            this.addRequestBody(sampler, request);
+        this.addJDBCDataSources(threadGroup, scenario);
+        scenario.requests.forEach(request => {
+          if (request.enable) {
+            if (!request.isValid()) return;
+            let sampler;
+            if (request instanceof DubboRequest) {
+              sampler = new DubboSample(request.name || "", new JMXDubboRequest(request, scenario.dubboConfig));
+            } else if (request instanceof HttpRequest) {
+              sampler = new HTTPSamplerProxy(request.name || "", new JMXHttpRequest(request, scenario.environment));
+              this.addRequestHeader(sampler, request);
+              this.addRequestArguments(sampler, request);
+              this.addRequestBody(sampler, request, testId);
+            } else if (request instanceof SqlRequest) {
+              request.dataSource = scenario.databaseConfigMap.get(request.dataSource);
+              sampler = new JDBCSampler(request.name || "", request);
+              this.addRequestVariables(sampler, request);
+            } else if (request instanceof TCPRequest) {
+              sampler = new TCPSampler(request.name || "", new JMXTCPRequest(request, scenario));
+            }
+
+            this.addDNSCacheManager(sampler, scenario.environment, request.useEnvironment);
+
+            this.addRequestExtractor(sampler, request);
+
+            this.addRequestAssertion(sampler, request);
+
+            this.addJSR223PreProcessor(sampler, request);
+
+            this.addConstantsTimer(sampler, request);
+
+            if (request.controller && request.controller.isValid() && request.controller.enable) {
+              if (request.controller instanceof IfController) {
+                let controller = this.getController(sampler, request);
+                threadGroup.put(controller);
+              }
+            } else {
+              threadGroup.put(sampler);
+            }
           }
-        }
+        })
+        testPlan.put(threadGroup);
+      }
 
-        this.addRequestAssertion(sampler, request);
-
-        this.addRequestExtractor(sampler, request);
-
-        threadGroup.put(sampler);
-      })
-
-      testPlan.put(threadGroup);
     })
   }
 
@@ -793,34 +1167,104 @@ class JMXGenerator {
     let envArray = environments;
     if (!(envArray instanceof Array)) {
       envArray = JSON.parse(environments);
-      envArray.forEach(item => {
-        if (item.name && !keys.has(item.name)) {
-          target.push(new KeyValue(item.name, item.value));
-        }
-      })
     }
+    envArray.forEach(item => {
+      if (item.name && !keys.has(item.name)) {
+        target.push(new KeyValue({name: item.name, value: item.value}));
+      }
+    })
   }
 
   addScenarioVariables(threadGroup, scenario) {
-    let environment = scenario.environment;
-    if (environment) {
-      this.addEnvironments(environment.variables, scenario.variables)
+    if (scenario.environment) {
+      let config = scenario.environment.config;
+      if (!(scenario.environment.config instanceof Object)) {
+        config = JSON.parse(scenario.environment.config);
+      }
+      this.addEnvironments(config.commonConfig.variables, scenario.variables)
     }
     let args = this.filterKV(scenario.variables);
     if (args.length > 0) {
-      let name = scenario.name + " Variables"
+      let name = scenario.name + " Variables";
       threadGroup.put(new Arguments(name, args));
     }
   }
 
+  addRequestVariables(httpSamplerProxy, request) {
+    let name = request.name + " Variables";
+    let variables = this.filterKV(request.variables);
+    if (variables && variables.length > 0) {
+      httpSamplerProxy.put(new Arguments(name, variables));
+    }
+  }
+
+  addScenarioCookieManager(threadGroup, scenario) {
+    if (scenario.enableCookieShare) {
+      threadGroup.put(new CookieManager(scenario.name));
+    }
+  }
+
+  addDNSCacheManager(httpSamplerProxy, environment, useEnv) {
+    if (environment && useEnv === true) {
+      let commonConfig = environment.config.commonConfig;
+      let hosts = commonConfig.hosts;
+      if (commonConfig.enableHost && hosts.length > 0) {
+        let name = " DNSCacheManager";
+        // 强化判断，如果未匹配到合适的host则不开启DNSCache
+        let domain = environment.config.httpConfig.domain;
+        let validHosts = [];
+        hosts.forEach(item => {
+          if (item.domain !== undefined && domain !== undefined) {
+            let d = item.domain.trim().replace("http://", "").replace("https://", "");
+            if (d === domain.trim()) {
+              item.domain = d; // 域名去掉协议
+              validHosts.push(item);
+            }
+          }
+        });
+        if (validHosts.length > 0) {
+          httpSamplerProxy.put(new DNSCacheManager(name, validHosts));
+        }
+      }
+    }
+  }
+
+  addJDBCDataSources(threadGroup, scenario) {
+    let names = new Set();
+    let databaseConfigMap = new Map();
+    scenario.databaseConfigs.forEach(config => {
+      let name = config.name + "JDBCDataSource";
+      threadGroup.put(new JDBCDataSource(name, config));
+      names.add(name);
+      databaseConfigMap.set(config.id, config.name);
+    });
+    if (scenario.environment) {
+      let config = scenario.environment.config;
+      if (!(scenario.environment.config instanceof Object)) {
+        config = JSON.parse(scenario.environment.config);
+      }
+      config.databaseConfigs.forEach(config => {
+        if (!names.has(config.name)) {
+          let name = config.name + "JDBCDataSource";
+          threadGroup.put(new JDBCDataSource(name, config));
+          databaseConfigMap.set(config.id, config.name);
+        }
+      });
+    }
+    scenario.databaseConfigMap = databaseConfigMap;
+  }
+
   addScenarioHeaders(threadGroup, scenario) {
-    let environment = scenario.environment;
-    if (environment) {
-      this.addEnvironments(environment.headers, scenario.headers)
+    if (scenario.environment) {
+      let config = scenario.environment.config;
+      if (!(scenario.environment.config instanceof Object)) {
+        config = JSON.parse(scenario.environment.config);
+      }
+      this.addEnvironments(config.httpConfig.headers, scenario.headers)
     }
     let headers = this.filterKV(scenario.headers);
     if (headers.length > 0) {
-      let name = scenario.name + " Headers"
+      let name = scenario.name + " Headers";
       threadGroup.put(new HeaderManager(name, headers));
     }
   }
@@ -834,9 +1278,57 @@ class JMXGenerator {
     }
   }
 
+  addJSR223PreProcessor(sampler, request) {
+    let name = request.name;
+    if (request.jsr223PreProcessor && request.jsr223PreProcessor.script) {
+      sampler.put(new JSR223PreProcessor(name, request.jsr223PreProcessor));
+    }
+    if (request.jsr223PostProcessor && request.jsr223PostProcessor.script) {
+      sampler.put(new JSR223PostProcessor(name, request.jsr223PostProcessor));
+    }
+  }
+
+  addConstantsTimer(sampler, request) {
+    if (request.timer && request.timer.isValid() && request.timer.enable) {
+      sampler.put(new JMXConstantTimer(request.timer.label(), request.timer));
+    }
+  }
+
+  getController(sampler, request) {
+    if (request.controller.isValid() && request.controller.enable) {
+      if (request.controller instanceof IfController) {
+        let name = request.controller.label();
+        let variable = "\"" + request.controller.variable + "\"";
+        let operator = request.controller.operator;
+        let value = "\"" + request.controller.value + "\"";
+
+        if (operator === "=~" || operator === "!~") {
+          value = "\".*" + request.controller.value + ".*\"";
+        }
+
+        if (operator === "is empty") {
+          variable = "empty(" + variable + ")";
+          operator = "";
+          value = "";
+        }
+
+        if (operator === "is not empty") {
+          variable = "!empty(" + variable + ")";
+          operator = "";
+          value = "";
+        }
+
+        let condition = "${__jexl3(" + variable + operator + value + ")}";
+        let controller = new JMXIfController(name, {condition: condition});
+        controller.put(sampler);
+        return controller;
+      }
+    }
+  }
+
   addBodyFormat(request) {
     let bodyFormat = request.body.format;
-    if (bodyFormat) {
+    if (!request.body.isKV() && bodyFormat) {
       switch (bodyFormat) {
         case BODY_FORMAT.JSON:
           this.addContentType(request, 'application/json');
@@ -855,12 +1347,14 @@ class JMXGenerator {
 
   addContentType(request, type) {
     for (let index in request.headers) {
-      if (request.headers[index].name == 'Content-Type') {
-        request.headers.splice(index, 1);
-        break;
+      if (request.headers.hasOwnProperty(index)) {
+        if (request.headers[index].name === 'Content-Type') {
+          request.headers.splice(index, 1);
+          break;
+        }
       }
     }
-    request.headers.push(new KeyValue('Content-Type', type));
+    request.headers.push(new KeyValue({name: 'Content-Type', value: type}));
   }
 
   addRequestArguments(httpSamplerProxy, request) {
@@ -870,23 +1364,48 @@ class JMXGenerator {
     }
   }
 
-  addRequestBody(httpSamplerProxy, request) {
+  addRequestBody(httpSamplerProxy, request, testId) {
     let body = [];
     if (request.body.isKV()) {
       body = this.filterKV(request.body.kvs);
+      this.addRequestBodyFile(httpSamplerProxy, request, testId);
     } else {
       httpSamplerProxy.boolProp('HTTPSampler.postBodyRaw', true);
-      body.push({name: '', value: request.body.raw, encode: false});
+      body.push({name: '', value: request.body.raw, encode: false, enable: true});
     }
 
-    httpSamplerProxy.add(new HTTPSamplerArguments(body));
+    if (request.method !== 'GET') {
+      httpSamplerProxy.add(new HTTPSamplerArguments(body));
+    }
+  }
+
+  addRequestBodyFile(httpSamplerProxy, request, testId) {
+    let files = [];
+    let kvs = this.filterKVFile(request.body.kvs);
+    kvs.forEach(kv => {
+      if ((kv.enable !== false) && kv.files) {
+        kv.files.forEach(file => {
+          let arg = {};
+          arg.name = kv.name;
+          arg.value = BODY_FILE_DIR + '/' + testId + '/' + file.id + '_' + file.name;
+          files.push(arg);
+        });
+      }
+    });
+    httpSamplerProxy.add(new HTTPsamplerFiles(files));
   }
 
   addRequestAssertion(httpSamplerProxy, request) {
     let assertions = request.assertions;
     if (assertions.regex.length > 0) {
       assertions.regex.filter(this.filter).forEach(regex => {
-        httpSamplerProxy.put(this.getAssertion(regex));
+        httpSamplerProxy.put(this.getResponseAssertion(regex));
+      })
+    }
+
+    if (assertions.jsonPath.length > 0) {
+      assertions.jsonPath.filter(this.filter).forEach(item => {
+        httpSamplerProxy.put(this.getJSONPathAssertion(item));
       })
     }
 
@@ -896,17 +1415,23 @@ class JMXGenerator {
     }
   }
 
-  getAssertion(regex) {
+  getJSONPathAssertion(jsonPath) {
+    let name = jsonPath.description;
+    return new JSONPathAssertion(name, jsonPath);
+  }
+
+  getResponseAssertion(regex) {
     let name = regex.description;
     let type = JMX_ASSERTION_CONDITION.CONTAINS; // 固定用Match，自己写正则
     let value = regex.expression;
+    let assumeSuccess = regex.assumeSuccess;
     switch (regex.subject) {
       case ASSERTION_REGEX_SUBJECT.RESPONSE_CODE:
-        return new ResponseCodeAssertion(name, type, value);
+        return new ResponseCodeAssertion(name, type, value, assumeSuccess);
       case ASSERTION_REGEX_SUBJECT.RESPONSE_DATA:
-        return new ResponseDataAssertion(name, type, value);
+        return new ResponseDataAssertion(name, type, value, assumeSuccess);
       case ASSERTION_REGEX_SUBJECT.RESPONSE_HEADERS:
-        return new ResponseHeadersAssertion(name, type, value);
+        return new ResponseHeadersAssertion(name, type, value, assumeSuccess);
     }
   }
 
@@ -958,6 +1483,12 @@ class JMXGenerator {
 
   filterKV(kvs) {
     return kvs.filter(this.filter);
+  }
+
+  filterKVFile(kvs) {
+    return kvs.filter(kv => {
+      return kv.isFile();
+    });
   }
 
   toXML() {

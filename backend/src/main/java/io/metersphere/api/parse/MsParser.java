@@ -3,12 +3,12 @@ package io.metersphere.api.parse;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.parser.Feature;
 import io.metersphere.api.dto.ApiTestImportRequest;
 import io.metersphere.api.dto.parse.ApiImport;
 import io.metersphere.api.dto.scenario.request.RequestType;
 import io.metersphere.commons.constants.MsRequestBodyType;
 import org.apache.commons.lang3.StringUtils;
-import org.eclipse.jetty.http.HttpMethod;
 
 import java.io.InputStream;
 
@@ -23,7 +23,7 @@ public class MsParser extends ApiImportAbstractParser {
     }
 
     private String parsePluginFormat(String testStr) {
-        JSONObject testObject = JSONObject.parseObject(testStr);
+        JSONObject testObject = JSONObject.parseObject(testStr, Feature.OrderedField);
         if (testObject.get("scenarios") != null) {
             return testStr;
         } else {
@@ -44,18 +44,7 @@ public class MsParser extends ApiImportAbstractParser {
 
                     requestTmpObject.keySet().forEach(key -> requestObject.put(key, requestTmpObject.get(key)));
                     requestObject.put("name", requestName);
-                    JSONArray bodies = requestObject.getJSONArray("body");
-                    if (StringUtils.equalsIgnoreCase(requestObject.getString("method"), HttpMethod.POST.name()) && bodies != null) {
-                        StringBuilder bodyStr = new StringBuilder();
-                        for (int i = 0; i < bodies.size(); i++) {
-                            String body = bodies.getString(i);
-                            bodyStr.append(body);
-                        }
-                        JSONObject bodyObject = new JSONObject();
-                        bodyObject.put("raw", bodyStr);
-                        bodyObject.put("type", MsRequestBodyType.RAW.value());
-                        requestObject.put("body", bodyObject);
-                    }
+                    parseBody(requestObject);
                     requestsObjects.add(requestObject);
                 });
                 scenario.put("requests", requestsObjects);
@@ -64,6 +53,41 @@ public class MsParser extends ApiImportAbstractParser {
             JSONObject result = new JSONObject();
             result.put("scenarios", scenarios);
             return result.toJSONString();
+        }
+    }
+
+    private void parseBody(JSONObject requestObject) {
+        if (requestObject.containsKey("body")) {
+            Object body = requestObject.get("body");
+            if (body instanceof JSONArray) {
+                JSONArray bodies = requestObject.getJSONArray("body");
+                if (StringUtils.equalsIgnoreCase(requestObject.getString("method"), "POST") && bodies != null) {
+                    StringBuilder bodyStr = new StringBuilder();
+                    for (int i = 0; i < bodies.size(); i++) {
+                        String tmp = bodies.getString(i);
+                        bodyStr.append(tmp);
+                    }
+                    JSONObject bodyObject = new JSONObject();
+                    bodyObject.put("raw", bodyStr);
+                    bodyObject.put("type", MsRequestBodyType.RAW.value());
+                    requestObject.put("body", bodyObject);
+                }
+            } else if (body instanceof JSONObject) {
+                JSONObject bodyObj = requestObject.getJSONObject("body");
+                if (StringUtils.equalsIgnoreCase(requestObject.getString("method"), "POST") && bodyObj != null) {
+                    JSONArray kvs = new JSONArray();
+                    bodyObj.keySet().forEach(key -> {
+                        JSONObject kv = new JSONObject();
+                        kv.put("name", key);
+                        kv.put("value", bodyObj.getString(key));
+                        kvs.add(kv);
+                    });
+                    JSONObject bodyRes = new JSONObject();
+                    bodyRes.put("kvs", kvs);
+                    bodyRes.put("type", MsRequestBodyType.KV.value());
+                    requestObject.put("body", bodyRes);
+                }
+            }
         }
     }
 }

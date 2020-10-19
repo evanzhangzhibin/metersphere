@@ -85,6 +85,7 @@ public class TestPlanTestCaseService {
 
         TestPlanTestCaseWithBLOBs testPlanTestCase = new TestPlanTestCaseWithBLOBs();
         BeanUtils.copyBean(testPlanTestCase, request);
+        testPlanTestCase.setUpdateTime(System.currentTimeMillis());
         testPlanTestCaseMapper.updateByExampleSelective(
                 testPlanTestCase,
                 testPlanTestCaseExample);
@@ -138,5 +139,13 @@ public class TestPlanTestCaseService {
         TestPlanTestCaseExample example = new TestPlanTestCaseExample();
         example.createCriteria().andIdIn(request.getIds());
         testPlanTestCaseMapper.deleteByExample(example);
+    }
+
+    public List<String> getTestPlanTestCaseIds(String testId) {
+        return extTestPlanTestCaseMapper.getTestPlanTestCaseIds(testId);
+    }
+
+    public int updateTestCaseStates(List<String> ids, String reportStatus) {
+        return extTestPlanTestCaseMapper.updateTestCaseStates(ids, reportStatus);
     }
 }

@@ -7,18 +7,25 @@ import io.metersphere.base.mapper.ext.ExtLoadTestReportDetailMapper;
 import io.metersphere.base.mapper.ext.ExtLoadTestReportMapper;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
+import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.ServiceUtils;
 import io.metersphere.commons.utils.SessionUtils;
 import io.metersphere.config.KafkaProperties;
 import io.metersphere.controller.request.OrderRequest;
+import io.metersphere.controller.request.QueryScheduleRequest;
 import io.metersphere.dto.DashboardTestDTO;
 import io.metersphere.dto.LoadTestDTO;
+import io.metersphere.dto.ScheduleDao;
 import io.metersphere.i18n.Translator;
 import io.metersphere.job.sechedule.PerformanceTestJob;
+import io.metersphere.notice.domain.NoticeDetail;
+import io.metersphere.notice.service.MailService;
+import io.metersphere.notice.service.NoticeService;
 import io.metersphere.performance.engine.Engine;
 import io.metersphere.performance.engine.EngineFactory;
 import io.metersphere.service.FileService;
+import io.metersphere.service.QuotaService;
 import io.metersphere.service.ScheduleService;
 import io.metersphere.service.TestResourceService;
 import io.metersphere.track.request.testplan.*;
@@ -76,6 +83,10 @@ public class PerformanceTestService {
     private TestCaseMapper testCaseMapper;
     @Resource
     private TestCaseService testCaseService;
+    @Resource
+    private NoticeService noticeService;
+    @Resource
+    private MailService mailService;
 
     public List<LoadTestDTO> list(QueryTestPlanRequest request) {
         request.setOrders(ServiceUtils.getDefaultOrder(request.getOrders()));
@@ -125,6 +136,9 @@ public class PerformanceTestService {
         if (files == null) {
             throw new IllegalArgumentException(Translator.get("file_cannot_be_null"));
         }
+
+        checkQuota(request, true);
+
         final LoadTestWithBLOBs loadTest = saveLoadTest(request);
         files.forEach(file -> {
             final FileMetadata fileMetadata = fileService.saveFile(file);
@@ -160,6 +174,7 @@ public class PerformanceTestService {
     }
 
     public String edit(EditTestPlanRequest request, List<MultipartFile> files) {
+        checkQuota(request, false);
         //
         LoadTestWithBLOBs loadTest = loadTestMapper.selectByPrimaryKey(request.getId());
         if (loadTest == null) {
@@ -223,9 +238,15 @@ public class PerformanceTestService {
         }
 
         startEngine(loadTest, engine, request.getTriggerMode());
-
-        // todo：通过调用stop方法能够停止正在运行的engine，但是如果部署了多个backend实例，页面发送的停止请求如何定位到具体的engine
-
+        List<NoticeDetail> noticeList = null;
+        if (request.getTriggerMode().equals("SCHEDULE")) {
+            try {
+                noticeList = noticeService.queryNotice(loadTest.getId());
+                mailService.sendPerformanceNotification(noticeList, PerformanceTestStatus.Completed.name(), loadTest, engine.getReportId());
+            } catch (Exception e) {
+                LogUtil.error(e.getMessage(), e);
+            }
+        }
         return engine.getReportId();
     }
 
@@ -255,7 +276,7 @@ public class PerformanceTestService {
     }
 
     private void startEngine(LoadTestWithBLOBs loadTest, Engine engine, String triggerMode) {
-        LoadTestReport testReport = new LoadTestReport();
+        LoadTestReportWithBLOBs testReport = new LoadTestReportWithBLOBs();
         testReport.setId(engine.getReportId());
         testReport.setCreateTime(engine.getStartTime());
         testReport.setUpdateTime(engine.getStartTime());
@@ -268,13 +289,14 @@ public class PerformanceTestService {
             testReport.setUserId(SessionUtils.getUser().getId());
         }
         // 启动测试
-
+        List<NoticeDetail> noticeList = null;
         try {
             engine.start();
             // 启动正常修改状态 starting
             loadTest.setStatus(PerformanceTestStatus.Starting.name());
             loadTestMapper.updateByPrimaryKeySelective(loadTest);
             // 启动正常插入 report
+            testReport.setLoadConfiguration(loadTest.getLoadConfiguration());
             testReport.setStatus(PerformanceTestStatus.Starting.name());
             loadTestReportMapper.insertSelective(testReport);
 
@@ -297,6 +319,10 @@ public class PerformanceTestService {
             loadTest.setStatus(PerformanceTestStatus.Error.name());
             loadTest.setDescription(e.getMessage());
             loadTestMapper.updateByPrimaryKeySelective(loadTest);
+            if (triggerMode.equals("SCHEDULE")) {
+                noticeList = noticeService.queryNotice(loadTest.getId());
+                mailService.sendPerformanceNotification(noticeList, loadTest.getStatus(), loadTest, loadTest.getId());
+            }
             throw e;
         }
     }
@@ -356,6 +382,7 @@ public class PerformanceTestService {
     }
 
     public void copy(SaveTestPlanRequest request) {
+        checkQuota(request, true);
         // copy test
         LoadTestWithBLOBs copy = loadTestMapper.selectByPrimaryKey(request.getId());
         copy.setId(UUID.randomUUID().toString());
@@ -372,6 +399,10 @@ public class PerformanceTestService {
         if (!CollectionUtils.isEmpty(loadTestFiles)) {
             loadTestFiles.forEach(loadTestFile -> {
                 FileMetadata fileMetadata = fileService.copyFile(loadTestFile.getFileId());
+                if (fileMetadata == null) {
+                    // 如果性能测试出现文件变更，这里会有 null
+                    return;
+                }
                 loadTestFile.setTestId(copy.getId());
                 loadTestFile.setFileId(fileMetadata.getId());
                 loadTestFileMapper.insert(loadTestFile);
@@ -414,6 +445,40 @@ public class PerformanceTestService {
             reportService.stopEngine(loadTest, engine);
             // 停止测试之后设置报告的状态
             reportService.updateStatus(reportId, PerformanceTestStatus.Completed.name());
+            List<NoticeDetail> noticeList = null;
+            if (loadTestReport.getTriggerMode().equals("SCHEDULE")) {
+                try {
+                    noticeList = noticeService.queryNotice(loadTest.getId());
+                    mailService.sendPerformanceNotification(noticeList, loadTestReport.getStatus(), loadTest, loadTestReport.getId());
+                } catch (Exception e) {
+                    LogUtil.error(e.getMessage(), e);
+                }
+            }
+
+
+        }
+    }
+
+    public List<ScheduleDao> listSchedule(QueryScheduleRequest request) {
+        request.setEnable(true);
+        List<ScheduleDao> schedules = scheduleService.list(request);
+        List<String> resourceIds = schedules.stream()
+                .map(Schedule::getResourceId)
+                .collect(Collectors.toList());
+        if (!resourceIds.isEmpty()) {
+            LoadTestExample example = new LoadTestExample();
+            example.createCriteria().andIdIn(resourceIds);
+            List<LoadTest> loadTests = loadTestMapper.selectByExample(example);
+            Map<String, String> loadTestMap = loadTests.stream().collect(Collectors.toMap(LoadTest::getId, LoadTest::getName));
+            scheduleService.build(loadTestMap, schedules);
+        }
+        return schedules;
+    }
+
+    private void checkQuota(TestPlanRequest request, boolean create) {
+        QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
+        if (quotaService != null) {
+            quotaService.checkLoadTestQuota(request, create);
         }
     }
 }

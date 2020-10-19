@@ -5,6 +5,7 @@
       <template v-slot:header>
 
         <ms-table-header :is-tester-permission="true" :condition.sync="condition" @search="initTableData"
+                         :tip="$t('commons.search_by_name_or_id')"
                          :create-tip="$t('test_track.case.create')" @create="testCaseCreate">
           <template v-slot:title>
             <node-breadcrumb class="table-title" :nodes="selectParentNodes" @refresh="refresh"/>
@@ -14,10 +15,10 @@
                              :content="$t('test_track.case.import.import')" @click="importTestCase"/>
             <ms-table-button :is-tester-permission="true" icon="el-icon-upload2"
                              :content="$t('test_track.case.export.export')" @click="handleBatch('export')"/>
-            <ms-table-button :is-tester-permission="true" icon="el-icon-right" :content="$t('test_track.case.move')"
-                             @click="handleBatch('move')"/>
-            <ms-table-button :is-tester-permission="true" icon="el-icon-delete" :content="$t('test_track.case.delete')"
-                             @click="handleBatch('delete')"/>
+            <!--            <ms-table-button :is-tester-permission="true" icon="el-icon-right" :content="$t('test_track.case.move')"-->
+            <!--                             @click="handleBatch('move')"/>-->
+            <!--            <ms-table-button :is-tester-permission="true" icon="el-icon-delete" :content="$t('test_track.case.delete')"-->
+            <!--                             @click="handleBatch('delete')"/>-->
             <!--<test-case-export/>-->
           </template>
         </ms-table-header>
@@ -34,11 +35,15 @@
         @filter-change="filter"
         @select-all="handleSelectAll"
         @select="handleSelectionChange"
-        @row-click="showDetail"
         row-key="id"
         class="test-content adjust-table">
         <el-table-column
           type="selection"/>
+        <el-table-column width="40" :resizable="false" align="center">
+          <template v-slot:default="scope">
+            <show-more-btn :is-show="scope.row.showMore" :buttons="buttons" :size="selectRows.size"/>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="num"
           sortable="custom"
@@ -48,7 +53,22 @@
         <el-table-column
           prop="name"
           :label="$t('commons.name')"
-          show-overflow-tooltip>
+          show-overflow-tooltip
+        >
+          <template v-slot:default="scope">
+            <!--<div @mouseover="showDetail(scope.row)">
+              <p>{{ scope.row.name }}</p>
+            </div>-->
+            <el-popover
+              placement="right-end"
+              :title="$t('test_track.case.view_case')"
+              width="60%"
+              trigger="hover"
+            >
+              <test-case-detail :test-case="scope.row"/>
+              <span slot="reference">{{ scope.row.name }}</span>
+            </el-popover>
+          </template>
         </el-table-column>
         <el-table-column
           prop="priority"
@@ -80,6 +100,18 @@
             <method-table-item :value="scope.row.method"/>
           </template>
         </el-table-column>
+
+        <el-table-column
+          :filters="statusFilters"
+          column-key="status"
+          :label="$t('test_track.case.status')">
+          <template v-slot:default="scope">
+            <span class="el-dropdown-link">
+              <review-status :value="scope.row.reviewStatus"/>
+            </span>
+          </template>
+        </el-table-column>
+
         <el-table-column
           prop="nodePath"
           :label="$t('test_track.case.module')"
@@ -96,7 +128,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          :label="$t('commons.operating')">
+          :label="$t('commons.operating')" min-width="100">
           <template v-slot:default="scope">
             <ms-table-operator :is-tester-permission="true" @editClick="handleEdit(scope.row)"
                                @deleteClick="handleDelete(scope.row)">
@@ -114,6 +146,9 @@
                            :total="total"/>
 
     </el-card>
+
+    <batch-edit ref="batchEdit" @batchEdit="batchEdit"
+                :typeArr="typeArr" :value-arr="valueArr" :dialog-title="$t('test_track.case.batch_edit_case')"/>
   </div>
 </template>
 
@@ -133,7 +168,13 @@
   import MsTableButton from "../../../common/components/MsTableButton";
   import {_filter, _sort} from "../../../../../common/js/utils";
   import {TEST_CASE_CONFIGS} from "../../../common/components/search/search-components";
-
+  import ShowMoreBtn from "./ShowMoreBtn";
+  import BatchEdit from "./BatchEdit";
+  import {WORKSPACE_ID} from "../../../../../common/js/constants";
+  import {LIST_CHANGE, TrackEvent} from "@/business/components/common/head/ListEvent";
+  import StatusTableItem from "@/business/components/track/common/tableItems/planview/StatusTableItem";
+  import TestCaseDetail from "./TestCaseDetail";
+  import ReviewStatus from "@/business/components/track/case/components/ReviewStatus";
   export default {
     name: "TestCaseList",
     components: {
@@ -143,7 +184,17 @@
       MethodTableItem,
       TypeTableItem,
       PriorityTableItem,
-      MsCreateBox, TestCaseImport, TestCaseExport, MsTablePagination, NodeBreadcrumb, MsTableHeader
+      MsCreateBox,
+      TestCaseImport,
+      TestCaseExport,
+      MsTablePagination,
+      NodeBreadcrumb,
+      MsTableHeader,
+      ShowMoreBtn,
+      BatchEdit,
+      StatusTableItem,
+      TestCaseDetail,
+      ReviewStatus
     },
     data() {
       return {
@@ -156,7 +207,7 @@
         currentPage: 1,
         pageSize: 10,
         total: 0,
-        selectIds: new Set(),
+        selectRows: new Set(),
         priorityFilters: [
           {text: 'P0', value: 'P0'},
           {text: 'P1', value: 'P1'},
@@ -171,7 +222,46 @@
           {text: this.$t('commons.functional'), value: 'functional'},
           {text: this.$t('commons.performance'), value: 'performance'},
           {text: this.$t('commons.api'), value: 'api'}
-        ]
+        ],
+        statusFilters: [
+          {text: this.$t('test_track.case.status_prepare'), value: 'Prepare'},
+          {text: this.$t('test_track.case.status_pass'), value: 'Pass'},
+          {text: this.$t('test_track.case.status_un_pass'), value: 'UnPass'},
+        ],
+        showMore: false,
+        buttons: [
+          {
+            name: this.$t('test_track.case.batch_edit_case'), handleClick: this.handleBatchEdit
+          }, {
+            name: this.$t('test_track.case.batch_move_case'), handleClick: this.handleBatchMove
+          }, {
+            name: this.$t('test_track.case.batch_delete_case'), handleClick: this.handleDeleteBatch
+          }
+        ],
+        typeArr: [
+          {id: 'priority', name: this.$t('test_track.case.priority')},
+          {id: 'type', name: this.$t('test_track.case.type')},
+          {id: 'method', name: this.$t('test_track.case.method')},
+          {id: 'maintainer', name: this.$t('test_track.case.maintainer')},
+        ],
+        valueArr: {
+          priority: [
+            {name: 'P0', id: 'P0'},
+            {name: 'P1', id: 'P1'},
+            {name: 'P2', id: 'P2'},
+            {name: 'P3', id: 'P3'}
+          ],
+          type: [
+            {name: this.$t('commons.functional'), id: 'functional'},
+            {name: this.$t('commons.performance'), id: 'performance'},
+            {name: this.$t('commons.api'), id: 'api'}
+          ],
+          method: [
+            {name: this.$t('test_track.case.manual'), id: 'manual'},
+            {name: this.$t('test_track.case.auto'), id: 'auto'}
+          ],
+          maintainer: [],
+        }
       }
     },
     props: {
@@ -193,6 +283,7 @@
         this.initTableData();
       },
       selectNodeIds() {
+        this.currentPage = 1;
         this.initTableData();
       }
     },
@@ -212,7 +303,8 @@
             let data = response.data;
             this.total = data.itemCount;
             this.tableData = data.listObject;
-            this.selectIds.clear();
+            // this.selectIds.clear();
+            this.selectRows.clear();
           });
         }
       },
@@ -246,10 +338,13 @@
           confirmButtonText: this.$t('commons.confirm'),
           callback: (action) => {
             if (action === 'confirm') {
-              this.$post('/test/case/batch/delete', {ids: [...this.selectIds]}, () => {
-                this.selectIds.clear();
+              let ids = Array.from(this.selectRows).map(row => row.id);
+              this.$post('/test/case/batch/delete', {ids: ids}, () => {
+                this.selectRows.clear();
                 this.$emit("refresh");
                 this.$success(this.$t('commons.delete_success'));
+                // 发送广播，刷新 head 上的最新列表
+                TrackEvent.$emit(LIST_CHANGE);
               });
             }
           }
@@ -260,11 +355,14 @@
         this.$post('/test/case/delete/' + testCaseId, {}, () => {
           this.initTableData();
           this.$success(this.$t('commons.delete_success'));
+          // 发送广播，刷新 head 上的最新列表
+          TrackEvent.$emit(LIST_CHANGE);
         });
       },
       refresh() {
         this.condition = {components: TEST_CASE_CONFIGS};
-        this.selectIds.clear();
+        // this.selectIds.clear();
+        this.selectRows.clear();
         this.$emit('refresh');
       },
       showDetail(row, event, column) {
@@ -273,28 +371,36 @@
       handleSelectAll(selection) {
         if (selection.length > 0) {
           this.tableData.forEach(item => {
-            this.selectIds.add(item.id);
+            this.$set(item, "showMore", true);
+            this.selectRows.add(item);
           });
         } else {
-          this.selectIds.clear();
+          this.selectRows.clear();
+          this.tableData.forEach(row => {
+            this.$set(row, "showMore", false);
+          })
         }
       },
       handleSelectionChange(selection, row) {
-        if (this.selectIds.has(row.id)) {
-          this.selectIds.delete(row.id);
+        if (this.selectRows.has(row)) {
+          this.$set(row, "showMore", false);
+          this.selectRows.delete(row);
         } else {
-          this.selectIds.add(row.id);
+          this.$set(row, "showMore", true);
+          this.selectRows.add(row);
         }
       },
       importTestCase() {
         this.$refs.testCaseImport.open();
       },
       exportTestCase() {
+        let ids = Array.from(this.selectRows).map(row => row.id);
         let config = {
           url: '/test/case/export/testcase',
           method: 'post',
           responseType: 'blob',
-          data: {ids: [...this.selectIds]}
+          // data: {ids: [...this.selectIds]}
+          data: {ids: ids, projectId: this.currentProject.id}
         };
         this.result = this.$request(config).then(response => {
           const filename = this.$t('test_track.case.test_case') + ".xlsx";
@@ -311,16 +417,65 @@
         });
       },
       handleBatch(type) {
-        if (this.selectIds.size < 1) {
-          this.$warning(this.$t('test_track.plan_view.select_manipulate'));
-          return;
+
+        if (this.selectRows.size < 1) {
+          if (type === 'export') {
+            this.$alert(this.$t('test_track.case.export_all_cases'), '', {
+              confirmButtonText: this.$t('commons.confirm'),
+              callback: (action) => {
+                if (action === 'confirm') {
+                  this.exportTestCase();
+                }
+              }
+            })
+            return;
+          } else {
+            this.$warning(this.$t('test_track.plan_view.select_manipulate'));
+            return;
+          }
         }
         if (type === 'move') {
-          this.$emit('moveToNode', this.selectIds);
+          let ids = Array.from(this.selectRows).map(row => row.id);
+          this.$emit('moveToNode', ids);
         } else if (type === 'delete') {
           this.handleDeleteBatch();
         } else {
           this.exportTestCase();
+        }
+      },
+      batchEdit(form) {
+        let sign = false;
+        let arr = Array.from(this.selectRows);
+        // 功能测试的测试方式不能设置为自动
+        if (form.type === 'method' && form.value === 'auto') {
+          arr.forEach(row => {
+            if (row.type === 'functional') {
+              sign = true;
+              return;
+            }
+          });
+        }
+
+        if (form.type === 'type' && form.value === 'functional') {
+          arr.forEach(row => {
+            if (row.method === 'auto') {
+              sign = true;
+              return;
+            }
+          });
+        }
+
+        let ids = arr.map(row => row.id);
+        let param = {};
+        param[form.type] = form.value;
+        param.ids = ids;
+        if (!sign) {
+          this.$post('/test/case/batch/edit', param, () => {
+            this.$success(this.$t('commons.save_success'));
+            this.refresh();
+          });
+        } else {
+          this.$warning("功能测试的测试方式不能设置为自动！");
         }
       },
       filter(filters) {
@@ -334,6 +489,19 @@
         }
         _sort(column, this.condition);
         this.initTableData();
+      },
+      handleBatchEdit() {
+        this.getMaintainerOptions();
+        this.$refs.batchEdit.open();
+      },
+      handleBatchMove() {
+        this.$emit("batchMove", Array.from(this.selectRows).map(row => row.id));
+      },
+      getMaintainerOptions() {
+        let workspaceId = localStorage.getItem(WORKSPACE_ID);
+        this.$post('/user/ws/member/tester/list', {workspaceId: workspaceId}, response => {
+          this.valueArr.maintainer = response.data;
+        });
       }
     }
   }
